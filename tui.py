@@ -36,7 +36,7 @@ class CommitSelectorApp(App):
         self.commits_data = commits_data
         self.git_engine = git_engine
         self.scroll_to_end = scroll_to_end
-        self.selected_hashes = set()
+        self.selected_keys = []
         self.ordered_keys = []
 
     def compose(self) -> ComposeResult:
@@ -63,38 +63,35 @@ class CommitSelectorApp(App):
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
         self.show_focus_next_key = True
-        hashes = list(self.selected_hashes)
+        hashes = self.selected_keys
         commit1 = next(c for c in self.commits_data if c['hash'] == hashes[0])
         commit2 = next(c for c in self.commits_data if c['hash'] == hashes[1])
         if commit1['date'] > commit2['date']:
             hashes.reverse()
         diff_text = self.git_engine.get_diff(hashes[0], hashes[1])
         syntax = Syntax(diff_text, "diff", theme="monokai", line_numbers=True, word_wrap=True)
+        
         diff_view = self.query_one(DiffViewLog)
         diff_view.clear()
-        # --- CHANGE #2: Use the configurable scroll option ---
+        
         diff_view.write(syntax)
+                    
         diff_view.styles.display = "block"
         diff_view.focus()
     
-    # --- CHANGE #3: New, simpler method to ONLY hide the panel ---
     def hide_diff_panel(self) -> None:
-        """Hides the diff panel and resets its bindings, without changing selections."""
         self.query_one(DiffViewLog).styles.display = "none"
         self.show_hide_diff_key = False
         self.show_focus_next_key = False
         self.query_one(SelectionDataTable).focus()
 
-    # --- CHANGE #4: The 'escape' action is now a full reset ---
     def action_hide_diff(self) -> None:
-        """Called on Escape. Hides panel and clears ALL selections."""
-        self.hide_diff_panel() # First, hide the UI
+        self.hide_diff_panel()
         table = self.query_one(SelectionDataTable)
-        for key in self.selected_hashes: # Then, clear the data
+        for key in self.selected_keys:
             table.update_cell(key, "selected_col", "")
-        self.selected_hashes.clear()
+        self.selected_keys.clear()
 
-    # --- CHANGE #5: The toggle logic is completely rewritten and robust ---
     def action_toggle_row(self) -> None:
         """Called when the user presses the spacebar."""
         table = self.query_one(SelectionDataTable)
@@ -106,20 +103,22 @@ class CommitSelectorApp(App):
         except IndexError:
             return
 
-        if row_key in self.selected_hashes:
+        if row_key in self.selected_keys:
             # If it's already selected, just remove it.
-            self.selected_hashes.remove(row_key)
+            self.selected_keys.remove(row_key)
             table.update_cell(row_key, "selected_col", "")
         else:
-            # If it's not selected, add it (if there's space).
-            if len(self.selected_hashes) < 2:
-                self.selected_hashes.add(row_key)
-                table.update_cell(row_key, "selected_col", "[green]✓[/green]")
-            else:
-                self.notify("You can only select two commits.", severity="warning")
+            # If it's not selected, add it.
+            # If we already have 2, remove the oldest one first.
+            if len(self.selected_keys) >= 2:
+                oldest_key = self.selected_keys.pop(0) # Pop from the front
+                table.update_cell(oldest_key, "selected_col", "")
+
+            self.selected_keys.append(row_key)
+            table.update_cell(row_key, "selected_col", "[green]✓[/green]")
 
         # Finally, update the UI to reflect the new state.
-        if len(self.selected_hashes) == 2:
+        if len(self.selected_keys) == 2:
             self.show_diff()
         else:
             self.hide_diff_panel()
