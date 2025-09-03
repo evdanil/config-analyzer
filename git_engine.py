@@ -51,7 +51,7 @@ class GitEngine:
         env["GIT_COMMITTER_EMAIL"] = f"{snapshot.author}@example.com"
         
         iso_date = snapshot.timestamp.isoformat()
-        commit_message = f"Configuration snapshot from {snapshot.original_filename}"
+        commit_message = f"{snapshot.original_filename}"
 
         try:
             subprocess.run(["git", "-C", self.repo_path, "add", "device.conf"], check=True, capture_output=True)
@@ -61,7 +61,7 @@ class GitEngine:
                     "git", "-C", self.repo_path, "commit",
                     "-m", commit_message,
                     f"--date={iso_date}",
-                    "--allow-empty"  # <--- FIX #1: Allow commits even if content is identical
+                    "--allow-empty"
                 ],
                 env=env,
                 check=True,

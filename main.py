@@ -18,10 +18,18 @@ from tui import CommitSelectorApp
     required=True,
     help="Name of the device folder inside the history folder."
 )
-def main(repo_path, device):
+# --- CHANGE: Add a new command-line flag for scrolling behavior ---
+@click.option(
+    '--scroll-to-end',
+    is_flag=True,
+    default=False,
+    help="Automatically scroll to the end of the diff view on load."
+)
+def main(repo_path, device, scroll_to_end):
     """
     An interactive tool to analyze network device configuration changes.
     """
+    # ... (rest of the file is unchanged until the app is created) ...
     console = Console()
     device_path = os.path.join(repo_path, 'history', device)
 
@@ -58,11 +66,9 @@ def main(repo_path, device):
                 console.print("[bold yellow]Need at least two valid snapshots to compare.[/bold yellow]")
                 return
 
-            # --- CHANGE: The main script now just creates and runs the app ---
-            # It passes the git engine instance to the TUI.
-            app = CommitSelectorApp(commits, git)
+            # --- CHANGE: Pass the new option into the app ---
+            app = CommitSelectorApp(commits, git, scroll_to_end=scroll_to_end)
             app.run()
-            # The while loop and all post-TUI logic is gone.
 
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
