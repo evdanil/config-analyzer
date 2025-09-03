@@ -1,6 +1,6 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, RichLog
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, Vertical # Import Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
 from rich.syntax import Syntax
@@ -12,13 +12,34 @@ class SelectionDataTable(DataTable):
     BINDINGS = []
 
 class CommitSelectorApp(App):
+    # --- CHANGE #1: The CSS is now refactored to handle all layout classes ---
     DEFAULT_CSS = """
-    #commit_table { width: 50%; height: 100%; }
+    /* Common styles for both widgets */
     #diff_view {
-        display: none; width: 50%; height: 100%;
-        border-left: solid steelblue;
+        display: none;
     }
-    #diff_view:focus { border-left: thick yellow; }
+
+    /* Horizontal Layouts (right, left) */
+    .layout-right #commit_table, .layout-left #commit_table,
+    .layout-right #diff_view, .layout-left #diff_view {
+        width: 50%;
+        height: 100%;
+    }
+    .layout-right #diff_view { border-left: solid steelblue; }
+    .layout-right #diff_view:focus { border-left: thick yellow; }
+    .layout-left #diff_view { border-right: solid steelblue; }
+    .layout-left #diff_view:focus { border-right: thick yellow; }
+
+    /* Vertical Layouts (bottom, top) */
+    .layout-bottom #commit_table, .layout-top #commit_table,
+    .layout-bottom #diff_view, .layout-top #diff_view {
+        height: 50%;
+        width: 100%;
+    }
+    .layout-bottom #diff_view { border-top: solid steelblue; }
+    .layout-bottom #diff_view:focus { border-top: thick yellow; }
+    .layout-top #diff_view { border-bottom: solid steelblue; }
+    .layout-top #diff_view:focus { border-bottom: thick yellow; }
     """
 
     show_hide_diff_key = reactive(False, layout=True)
@@ -31,22 +52,41 @@ class CommitSelectorApp(App):
         Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
     ]
 
-    def __init__(self, commits_data, git_engine, scroll_to_end: bool = False):
+    def __init__(self, commits_data, git_engine, scroll_to_end: bool = False, layout: str = 'right'):
         super().__init__()
         self.commits_data = commits_data
         self.git_engine = git_engine
         self.scroll_to_end = scroll_to_end
+        self.layout = layout # Store the layout preference
         self.selected_keys = []
         self.ordered_keys = []
 
+    # --- CHANGE #2: The compose method now builds the layout dynamically ---
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Horizontal(
-            SelectionDataTable(id="commit_table"),
-            DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True),
-        )
+
+        # Define the widgets once
+        table = SelectionDataTable(id="commit_table")
+        diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
+
+        # Choose the container and order based on the layout
+        if self.layout in ('right', 'left'):
+            container = Horizontal(classes=f"layout-{self.layout}")
+            first_widget = diff_view if self.layout == 'left' else table
+            second_widget = table if self.layout == 'left' else diff_view
+        else: # top or bottom
+            container = Vertical(classes=f"layout-{self.layout}")
+            first_widget = diff_view if self.layout == 'top' else table
+            second_widget = table if self.layout == 'top' else diff_view
+        
+        with container:
+            yield first_widget
+            yield second_widget
+            
         yield Footer()
 
+    # No further changes are needed in the rest of the file.
+    # The logic is independent of the layout.
     def on_mount(self) -> None:
         table = self.query_one(SelectionDataTable)
         table.cursor_type = "row"
@@ -70,15 +110,13 @@ class CommitSelectorApp(App):
             hashes.reverse()
         diff_text = self.git_engine.get_diff(hashes[0], hashes[1])
         syntax = Syntax(diff_text, "diff", theme="monokai", line_numbers=True, word_wrap=True)
-        
         diff_view = self.query_one(DiffViewLog)
         diff_view.clear()
-        
         diff_view.write(syntax)
-                    
+
         diff_view.styles.display = "block"
         diff_view.focus()
-    
+
     def hide_diff_panel(self) -> None:
         self.query_one(DiffViewLog).styles.display = "none"
         self.show_hide_diff_key = False
@@ -93,31 +131,22 @@ class CommitSelectorApp(App):
         self.selected_keys.clear()
 
     def action_toggle_row(self) -> None:
-        """Called when the user presses the spacebar."""
         table = self.query_one(SelectionDataTable)
         if not table.has_focus:
             return
-
         try:
             row_key = self.ordered_keys[table.cursor_row]
         except IndexError:
             return
-
         if row_key in self.selected_keys:
-            # If it's already selected, just remove it.
             self.selected_keys.remove(row_key)
             table.update_cell(row_key, "selected_col", "")
         else:
-            # If it's not selected, add it.
-            # If we already have 2, remove the oldest one first.
             if len(self.selected_keys) >= 2:
-                oldest_key = self.selected_keys.pop(0) # Pop from the front
+                oldest_key = self.selected_keys.pop(0)
                 table.update_cell(oldest_key, "selected_col", "")
-
             self.selected_keys.append(row_key)
             table.update_cell(row_key, "selected_col", "[green]✓[/green]")
-
-        # Finally, update the UI to reflect the new state.
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:

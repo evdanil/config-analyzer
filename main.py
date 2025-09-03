@@ -18,18 +18,25 @@ from tui import CommitSelectorApp
     required=True,
     help="Name of the device folder inside the history folder."
 )
-# --- CHANGE: Add a new command-line flag for scrolling behavior ---
 @click.option(
     '--scroll-to-end',
     is_flag=True,
     default=False,
-    help="Automatically scroll to the end of the diff view on load."
+    help="Automatically scroll to the end of the diff view on load.",
+    show_default=True,
 )
-def main(repo_path, device, scroll_to_end):
+# --- CHANGE: Add a new command-line option for the layout ---
+@click.option(
+    '--layout',
+    type=click.Choice(['right', 'left', 'bottom', 'top'], case_sensitive=False),
+    default='right',
+    help="Position of the diff panel relative to the commit list.",
+    show_default=True,
+)
+def main(repo_path, device, scroll_to_end, layout):
     """
     An interactive tool to analyze network device configuration changes.
     """
-    # ... (rest of the file is unchanged until the app is created) ...
     console = Console()
     device_path = os.path.join(repo_path, 'history', device)
 
@@ -66,8 +73,13 @@ def main(repo_path, device, scroll_to_end):
                 console.print("[bold yellow]Need at least two valid snapshots to compare.[/bold yellow]")
                 return
 
-            # --- CHANGE: Pass the new option into the app ---
-            app = CommitSelectorApp(commits, git, scroll_to_end=scroll_to_end)
+            # --- CHANGE: Pass the layout preference into the app ---
+            app = CommitSelectorApp(
+                commits_data=commits, 
+                git_engine=git, 
+                scroll_to_end=scroll_to_end, 
+                layout=layout
+            )
             app.run()
 
     except Exception as e:
