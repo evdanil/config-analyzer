@@ -1,6 +1,5 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, RichLog
-# --- FIX: Import the correct container ---
 from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -13,34 +12,33 @@ class SelectionDataTable(DataTable):
     BINDINGS = []
 
 class CommitSelectorApp(App):
-    # CSS is now correct and robust.
+    # A simplified, correct CSS implementation.
     DEFAULT_CSS = """
-    /* This is the clipping container for the table */
-    #table-container {
-        overflow: hidden; /* This is the key to fixing the rendering bleed */
-        padding: 0;
-        border: none;
+    #table-container, #diff_view {
+        /* Ensure both panels have a solid background */
+        background: $surface;
     }
+
+    #table-container {
+        /* Clip the table to prevent render artifacts */
+        overflow: hidden;
+    }
+
     #diff_view {
         visibility: hidden;
+        /* Add padding so content doesn't touch the border */
         padding: 0 1;
     }
-    #commit_table, #diff_view {
-        scrollbar-color: transparent transparent;
-        scrollbar-color-hover: $primary-lighten-2 transparent;
-    }
-    /* Gutter styling remains correct */
-    .layout-right, .layout-left, .layout-top, .layout-bottom {
-        grid-size: 2;
-        scrollbar-background: steelblue;
-    }
-    .layout-right, .layout-left { grid-gutter-horizontal: 1; }
-    .layout-top, .layout-bottom { grid-gutter-vertical: 1; }
-    .layout-right:focus-within, .layout-left:focus-within, .layout-top:focus-within, .layout-bottom:focus-within {
-        scrollbar-background: yellow;
-    }
-    .layout-right > *, .layout-left > * { width: 1fr; height: 100%; }
-    .layout-top > *, .layout-bottom > * { width: 100%; height: 1fr; }
+
+    /* Simple, robust border definition */
+    .layout-right #diff_view { border-left: solid steelblue; }
+    .layout-right #diff_view:focus-within { border-left: thick yellow; }
+    .layout-left #diff_view { border-right: solid steelblue; }
+    .layout-left #diff_view:focus-within { border-right: thick yellow; }
+    .layout-bottom #diff_view { border-top: solid steelblue; }
+    .layout-bottom #diff_view:focus-within { border-top: thick yellow; }
+    .layout-top #diff_view { border-bottom: solid steelblue; }
+    .layout-top #diff_view:focus-within { border-bottom: thick yellow; }
     """
 
     show_hide_diff_key = reactive(False, layout=True)
@@ -62,35 +60,24 @@ class CommitSelectorApp(App):
         self.selected_keys = []
         self.ordered_keys = []
 
-    # --- FIX: A completely correct compose method using the right container ---
     def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
         yield Header()
-
-        # 1. Instantiate the widgets.
         diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
         table = SelectionDataTable(id="commit_table")
-        
-        # 2. Use a generic 'Container' as the clipping parent, not 'Static'.
         table_container = Container(table, id="table-container")
 
-        # 3. Arrange the widgets in the correct layout container.
         if self.layout in ('right', 'left'):
             ordered_widgets = (diff_view, table_container) if self.layout == 'left' else (table_container, diff_view)
             yield Horizontal(*ordered_widgets, classes=f"layout-{self.layout}")
-        else:  # 'top' or 'bottom'
+        else:
             ordered_widgets = (diff_view, table_container) if self.layout == 'top' else (table_container, diff_view)
             yield Vertical(*ordered_widgets, classes=f"layout-{self.layout}")
-
         yield Footer()
 
-    # The on_ready/setup_table solution remains correct and necessary.
     async def on_ready(self) -> None:
-        """Called after the DOM is ready, a safe time to query."""
         self.setup_table()
 
     def setup_table(self) -> None:
-        """Populates the DataTable with commit information."""
         table = self.query_one("#commit_table", SelectionDataTable)
         table.cursor_type = "row"
         table.add_column("✓", key="selected_col")
@@ -104,8 +91,6 @@ class CommitSelectorApp(App):
             table.add_row("", *commit.values(), key=key)
         table.focus()
 
-    # No further changes are needed. The remaining methods are correct.
-
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
         self.show_focus_next_key = True
@@ -115,7 +100,13 @@ class CommitSelectorApp(App):
         if commit1['date'] > commit2['date']:
             hashes.reverse()
         diff_text = self.git_engine.get_diff(hashes[0], hashes[1])
-        syntax = Syntax(diff_text, "diff", theme="monakai", line_numbers=True, word_wrap=True)
+
+        # --- THIS IS THE FIX ---
+        # Remove the 'theme="monokai"' argument.
+        # This allows the Syntax object to have a transparent background,
+        # making the underlying widget background ($surface) visible.
+        syntax = Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
+
         diff_view = self.query_one("#diff_view", DiffViewLog)
         diff_view.clear()
         diff_view.write(syntax)
