@@ -85,10 +85,9 @@ class CommitSelectorApp(App):
         table.add_column("Hash", key="hash_col")
         table.add_column("Date", key="date_col")
         table.add_column("Author", key="author_col")
-        table.add_column("Message", key="message_col")
         for snapshot in self.snapshots_data:
             # Use the full path as a guaranteed unique key
-            key = snapshot.path 
+            key = snapshot.path
             self.ordered_keys.append(key)
             # Add data directly from the snapshot object
             table.add_row(
