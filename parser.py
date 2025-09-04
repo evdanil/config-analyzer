@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime
 from typing import Optional, NamedTuple
@@ -53,7 +54,7 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
             break
             
     content_body = "\n".join(lines[body_start_index:])
-    original_filename = file_path.split('/')[-1]
+    original_filename = os.path.basename(file_path)
 
     return Snapshot(
         path=file_path,
