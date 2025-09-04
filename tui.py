@@ -3,6 +3,8 @@ from textual.widgets import Header, Footer, DataTable, RichLog
 from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
+from parser import Snapshot
+from differ import get_diff
 from rich.syntax import Syntax
 
 class DiffViewLog(RichLog):
@@ -51,10 +53,9 @@ class CommitSelectorApp(App):
         Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
     ]
 
-    def __init__(self, commits_data, git_engine, scroll_to_end: bool = False, layout: str = 'right'):
+    def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = 'right'):
         super().__init__()
-        self.commits_data = commits_data
-        self.git_engine = git_engine
+        self.snapshots_data = snapshots_data
         self.scroll_to_end = scroll_to_end
         self.layout = layout
         self.selected_keys = []
@@ -85,21 +86,37 @@ class CommitSelectorApp(App):
         table.add_column("Date", key="date_col")
         table.add_column("Author", key="author_col")
         table.add_column("Message", key="message_col")
-        for commit in self.commits_data:
-            key = commit["hash"]
+        for snapshot in self.snapshots_data:
+            # Use the full path as a guaranteed unique key
+            key = snapshot.path 
             self.ordered_keys.append(key)
-            table.add_row("", *commit.values(), key=key)
+            # Add data directly from the snapshot object
+            table.add_row(
+                "",
+                snapshot.original_filename,
+                str(snapshot.timestamp),
+                snapshot.author,
+                key=key
+            )
         table.focus()
 
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
         self.show_focus_next_key = True
-        hashes = self.selected_keys
-        commit1 = next(c for c in self.commits_data if c['hash'] == hashes[0])
-        commit2 = next(c for c in self.commits_data if c['hash'] == hashes[1])
-        if commit1['date'] > commit2['date']:
-            hashes.reverse()
-        diff_text = self.git_engine.get_diff(hashes[0], hashes[1])
+        
+        # The selected keys are now file paths
+        path1, path2 = self.selected_keys
+        
+        # Find the full snapshot objects from our data list
+        snapshot1 = next(s for s in self.snapshots_data if s.path == path1)
+        snapshot2 = next(s for s in self.snapshots_data if s.path == path2)
+
+        # Ensure they are in chronological order
+        if snapshot1.timestamp > snapshot2.timestamp:
+            snapshot1, snapshot2 = snapshot2, snapshot1
+
+        # Use our new, simple diff function
+        diff_text = get_diff(snapshot1, snapshot2)
 
         # --- THIS IS THE FIX ---
         # Remove the 'theme="monokai"' argument.

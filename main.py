@@ -3,7 +3,6 @@ import click
 from rich.console import Console
 
 from parser import parse_snapshot
-from git_engine import GitEngine
 from tui import CommitSelectorApp
 
 @click.command()
@@ -62,25 +61,17 @@ def main(repo_path, device, scroll_to_end, layout):
     
     snapshots.sort(key=lambda s: s.timestamp)
 
-    try:
-        with GitEngine() as git:
-            with console.status("[cyan]Building temporary git history...[/cyan]"):
-                for snapshot in snapshots:
-                    git.commit_snapshot(snapshot)
-            
-            commits = git.get_log()
-            if len(commits) < 2:
-                console.print("[bold yellow]Need at least two valid snapshots to compare.[/bold yellow]")
-                return
+    if len(snapshots) < 2:
+        console.print("[bold yellow]Need at least two valid snapshots to compare.[/bold yellow]")
+        return
 
-            # --- CHANGE: Pass the layout preference into the app ---
-            app = CommitSelectorApp(
-                commits_data=commits, 
-                git_engine=git, 
-                scroll_to_end=scroll_to_end, 
-                layout=layout
-            )
-            app.run()
+    try:
+        app = CommitSelectorApp(
+            snapshots_data=snapshots, # Pass snapshots directly
+            scroll_to_end=scroll_to_end, 
+            layout=layout
+        )
+        app.run()
 
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
