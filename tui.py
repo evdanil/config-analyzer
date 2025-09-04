@@ -5,7 +5,6 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from parser import Snapshot
 from differ import get_diff
-from rich.syntax import Syntax
 
 class DiffViewLog(RichLog):
     BINDINGS = [Binding("space", "page_down", "Page Down", show=False)]
@@ -114,18 +113,12 @@ class CommitSelectorApp(App):
         if snapshot1.timestamp > snapshot2.timestamp:
             snapshot1, snapshot2 = snapshot2, snapshot1
 
-        # Use our new, simple diff function
-        diff_text = get_diff(snapshot1, snapshot2)
-
-        # --- THIS IS THE FIX ---
-        # Remove the 'theme="monokai"' argument.
-        # This allows the Syntax object to have a transparent background,
-        # making the underlying widget background ($surface) visible.
-        syntax = Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
+        # Generate the colorized diff
+        diff_syntax = get_diff(snapshot1, snapshot2)
 
         diff_view = self.query_one("#diff_view", DiffViewLog)
         diff_view.clear()
-        diff_view.write(syntax)
+        diff_view.write(diff_syntax)
         diff_view.styles.visibility = "visible"
         diff_view.focus()
 
