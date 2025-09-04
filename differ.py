@@ -1,44 +1,34 @@
-import subprocess
-import tempfile
+import difflib
 from typing import TYPE_CHECKING
+from rich.syntax import Syntax
 
 # Use a forward reference to avoid circular import
 if TYPE_CHECKING:
     from parser import Snapshot
 
-def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> str:
+def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:
     """
-    Generates a colorized, unified diff between the content of two snapshots.
-    
+    Generates a unified diff between the content of two snapshots and wraps it
+    in a ``rich.syntax.Syntax`` object for optional colorization.
+
     Args:
         snapshot1: The first snapshot object.
         snapshot2: The second snapshot object.
 
     Returns:
-        A string containing the colorized diff output.
+        A ``Syntax`` instance containing the diff output.
     """
-    try:
-        # Use tempfile.NamedTemporaryFile to handle creation and cleanup
-        with tempfile.NamedTemporaryFile(mode='w', delete=True, encoding='utf-8') as file1, tempfile.NamedTemporaryFile(mode='w', delete=True, encoding='utf-8') as file2:
-            
-            file1.write(snapshot1.content_body)
-            file1.flush()  # Ensure content is written to disk
-            
-            file2.write(snapshot2.content_body)
-            file2.flush()
+    lines1 = snapshot1.content_body.splitlines(keepends=True)
+    lines2 = snapshot2.content_body.splitlines(keepends=True)
 
-            # Use '-u' for a unified diff, which is standard and readable
-            cmd = ["diff", "-u", "--color=always", file1.name, file2.name]
-            
-            # We don't use check=True because diff returns 1 if files differ.
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Return stdout regardless of the exit code.
-            # If there's an actual error, stderr will give a clue.
-            return result.stdout if result.stdout else result.stderr
+    diff_lines = difflib.unified_diff(
+        lines1,
+        lines2,
+        fromfile=snapshot1.original_filename,
+        tofile=snapshot2.original_filename,
+        lineterm="",
+    )
 
-    except FileNotFoundError:
-        return "Error: The 'diff' command was not found on your system."
-    except Exception as e:
-        return f"An unexpected error occurred during diffing: {e}"
+    diff_text = "".join(diff_lines)
+    return Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
     
