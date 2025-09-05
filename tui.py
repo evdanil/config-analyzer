@@ -98,7 +98,7 @@ class CommitSelectorApp(App):
         main.mount(container)
 
     def setup_table(self) -> None:
-        table = self.query_one("#commit_table", SelectionDataTable)
+        table = self.table
         table.cursor_type = "row"
         table.add_column("Sel", key="selected_col", width=3)
         table.add_column("Name", key="name_col")
@@ -132,27 +132,27 @@ class CommitSelectorApp(App):
         else:
             renderable = get_diff(snapshot1, snapshot2)
 
-        diff_view = self.query_one("#diff_view", DiffViewLog)
+        diff_view = self.diff_view
         diff_view.clear()
         diff_view.write(renderable)
         diff_view.styles.visibility = "visible"
         diff_view.focus()
 
     def hide_diff_panel(self) -> None:
-        self.query_one("#diff_view", DiffViewLog).styles.visibility = "hidden"
+        self.diff_view.styles.visibility = "hidden"
         self.show_hide_diff_key = False
         self.show_focus_next_key = False
-        self.query_one("#commit_table", SelectionDataTable).focus()
+        self.table.focus()
 
     def action_hide_diff(self) -> None:
         self.hide_diff_panel()
-        table = self.query_one("#commit_table", SelectionDataTable)
+        table = self.table
         for key in self.selected_keys:
             table.update_cell(key, "selected_col", "")
         self.selected_keys.clear()
 
     def action_toggle_row(self) -> None:
-        table = self.query_one("#commit_table", SelectionDataTable)
+        table = self.table
         if not table.has_focus:
             return
         try:
@@ -167,7 +167,7 @@ class CommitSelectorApp(App):
                 oldest_key = self.selected_keys.pop(0)
                 table.update_cell(oldest_key, "selected_col", "")
             self.selected_keys.append(row_key)
-            table.update_cell(row_key, "selected_col", Text("✓", style="green"))
+            table.update_cell(row_key, "selected_col", "[green][x][/green]")
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:
@@ -176,7 +176,7 @@ class CommitSelectorApp(App):
     def action_toggle_diff_mode(self) -> None:
         self.diff_mode = "side-by-side" if self.diff_mode == "unified" else "unified"
         # If two selected and diff visible, re-render
-        if len(self.selected_keys) == 2 and self.query_one("#diff_view", DiffViewLog).styles.visibility == "visible":
+        if len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
 
     def action_toggle_layout(self) -> None:
@@ -190,6 +190,12 @@ class CommitSelectorApp(App):
         self._mount_layout()
         # Keep focus sensible
         if self.show_hide_diff_key:
-            self.query_one("#diff_view", DiffViewLog).focus()
+            self.diff_view.focus()
         else:
-            self.query_one("#commit_table", SelectionDataTable).focus()
+            self.table.focus()
+
+
+
+
+
+
