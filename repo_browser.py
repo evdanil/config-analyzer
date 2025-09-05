@@ -80,7 +80,7 @@ class RepoBrowserApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        self.table = self.BrowserDataTable(id="left")
+        self.table = BrowserDataTable(id="left")
         self.table.cursor_type = "row"
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
         self.main_panel = Container(id="browser-main")
@@ -283,6 +283,7 @@ class RepoBrowserApp(App):
         self._apply_layout()
 
     # 'o' binding removed; Enter handles both folders and device open
+
 
 
 
