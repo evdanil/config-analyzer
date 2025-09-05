@@ -69,22 +69,19 @@ class CommitSelectorApp(App):
         self.diff_view.can_focus = False
         self.table = SelectionDataTable(id="commit_table")  # type: ignore[attr-defined]
         self.table_container = Container(self.table, id="table-container")  # type: ignore[attr-defined]
-        # Two orientation containers kept mounted; we toggle visibility and order
-        self.h_container = Horizontal(id="h-container")  # type: ignore[attr-defined]
-        self.v_container = Vertical(id="v-container")    # type: ignore[attr-defined]
-        # Main holder with a layout class
-        self.main_panel = Container(self.h_container, self.v_container, id="main-panel")  # type: ignore[attr-defined]
+        # Main holder; orientation container will be mounted here
+        self.main_panel = Container(id="main-panel")  # type: ignore[attr-defined]
         yield self.main_panel
         yield Footer()
 
-    async def on_ready(self) -> None:
+    def on_mount(self) -> None:
         # Build initial layout, then populate the table
         self._apply_layout()
         self.setup_table()
         self.table.focus()
 
     def _apply_layout(self) -> None:
-        # Ensure widgets are not attached to any container
+        # Ensure widgets are detached from any parent
         try:
             if self.table_container.parent is not None:
                 self.table_container.remove()
@@ -96,45 +93,22 @@ class CommitSelectorApp(App):
         except Exception:
             pass
 
-        # Reset containers' children
-        for cont in (self.h_container, self.v_container):
-            try:
-                for child in list(cont.children):
-                    child.remove()
-            except Exception:
-                pass
-
-        # Apply classes on the main panel for CSS borders
+        # Clear any previous orientation container
         main = self.main_panel
-        # Remove any existing layout-* class
-        for c in list(main.classes):
-            if str(c).startswith("layout-"):
-                main.remove_class(str(c))
-        main.add_class(f"layout-{self.layout}")
+        try:
+            for child in list(main.children):
+                child.remove()
+        except Exception:
+            pass
 
-        # Arrange widgets in the proper container and order
+        # New orientation container with appropriate class
         if self.layout in ("right", "left"):
-            # Horizontal
-            if self.layout == "left":
-                self.h_container.mount(self.diff_view)
-                self.h_container.mount(self.table_container)
-            else:
-                self.h_container.mount(self.table_container)
-                self.h_container.mount(self.diff_view)
-            # Show horizontal, hide vertical
-            self.h_container.styles.display = "block"
-            self.v_container.styles.display = "none"
+            ordered = (self.diff_view, self.table_container) if self.layout == "left" else (self.table_container, self.diff_view)
+            container = Horizontal(*ordered, classes=f"layout-{self.layout}")
         else:
-            # Vertical
-            if self.layout == "top":
-                self.v_container.mount(self.diff_view)
-                self.v_container.mount(self.table_container)
-            else:
-                self.v_container.mount(self.table_container)
-                self.v_container.mount(self.diff_view)
-            # Show vertical, hide horizontal
-            self.v_container.styles.display = "block"
-            self.h_container.styles.display = "none"
+            ordered = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
+            container = Vertical(*ordered, classes=f"layout-{self.layout}")
+        main.mount(container)
 
     def setup_table(self) -> None:
         table = self.table
