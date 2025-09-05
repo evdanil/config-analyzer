@@ -5,6 +5,7 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from parser import Snapshot
 from differ import get_diff, get_diff_side_by_side
+from rich.text import Text
 
 
 class DiffViewLog(RichLog):
@@ -147,7 +148,7 @@ class CommitSelectorApp(App):
                 oldest_key = self.selected_keys.pop(0)
                 table.update_cell(oldest_key, "selected_col", "")
             self.selected_keys.append(row_key)
-            table.update_cell(row_key, "selected_col", "[green][x][/green]")
+            table.update_cell(row_key, "selected_col", Text("✓", style="green"))
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:

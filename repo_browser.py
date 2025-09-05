@@ -54,7 +54,8 @@ class RepoBrowserApp(App):
 
     def _setup_table(self) -> None:
         t = self.table
-        t.clear(columns=True)
+        # Clear entirely for broader Textual compatibility, then rebuild columns
+        t.clear()
         t.add_column("Type", width=8)
         t.add_column("Name")
         t.add_column("User", width=16)
@@ -64,7 +65,9 @@ class RepoBrowserApp(App):
     def _load_directory(self, path: str) -> None:
         self.current_path = path
         t = self.table
-        t.clear(rows=True)
+        # Clear and rebuild columns to avoid clear(rows=...) incompatibility
+        t.clear()
+        self._setup_table()
         self._row_keys = []
         self.preview.clear()
 
