@@ -94,28 +94,19 @@ class CommitSelectorApp(App):
             _focus_table()
 
     def _apply_layout(self) -> None:
-        self.logr.debug("apply_layout: start layout=%s", self.layout)
-        # Ensure widgets are detached from any parent
-        try:
-            if self.table_container.parent is not None:
-                self.table_container.remove()
-        except Exception:
-            self.logr.debug("apply_layout: table_container.remove() ignored")
-        try:
-            if self.diff_view.parent is not None:
-                self.diff_view.remove()
-        except Exception:
-            self.logr.debug("apply_layout: diff_view.remove() ignored")
-
-        # Clear any previous orientation container
+        """Rebuild the UI fresh to avoid reparent timing issues."""
+        self.logr.debug("apply_layout: start layout=%s (rebuild)", self.layout)
         main = self.main_panel
         try:
             for child in list(main.children):
                 child.remove()
         except Exception:
-            pass
-
-        # New orientation container with appropriate class
+            self.logr.debug("apply_layout: clearing main children ignored")
+        self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
+        self.diff_view.styles.visibility = "visible" if self.show_hide_diff_key else "hidden"
+        self.diff_view.can_focus = bool(self.show_hide_diff_key)
+        self.table = SelectionDataTable(id="commit_table")
+        self.table_container = Container(self.table, id="table-container")
         if self.layout in ("right", "left"):
             ordered = (self.diff_view, self.table_container) if self.layout == "left" else (self.table_container, self.diff_view)
             container = Horizontal(*ordered, classes=f"layout-{self.layout}")
@@ -123,17 +114,21 @@ class CommitSelectorApp(App):
             ordered = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
             container = Vertical(*ordered, classes=f"layout-{self.layout}")
         main.mount(container)
+        self.setup_table()
         try:
-            self.logr.debug(
-                "apply_layout: mounted %s children=%d (table_parent=%s, diff_parent=%s)",
-                type(container).__name__,
-                len(list(container.children)),
-                type(self.table_container.parent).__name__ if self.table_container.parent else None,
-                type(self.diff_view.parent).__name__ if self.diff_view.parent else None,
-            )
+            for key in self.selected_keys:
+                self.table.update_cell(key, "selected_col", Text("x", style="green"))
+        except Exception as e:
+            self.logr.debug("apply_layout: reapply selections error: %s", e)
+        if self.show_hide_diff_key and len(self.selected_keys) == 2:
+            self.show_diff()
+        try:
+            if self.show_hide_diff_key:
+                self.diff_view.focus()
+            else:
+                self.table.focus()
         except Exception:
-            self.logr.debug("apply_layout: post-mount logging skipped")
-
+            self.logr.debug("apply_layout: focus restore ignored")
     def setup_table(self) -> None:
         self.logr.debug("setup_table: %d snapshots", len(self.snapshots_data))
         table = self.table
