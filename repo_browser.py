@@ -29,7 +29,9 @@ class RepoBrowserApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("enter", "enter_selected", "Enter"),
+        Binding("right", "enter_selected", "Enter"),
         Binding("backspace", "go_up", "Up"),
+        Binding("left", "go_up", "Up"),
         Binding("o", "open_history", "Open History"),
     ]
 
@@ -149,6 +151,10 @@ class RepoBrowserApp(App):
         else:
             # Device file selected -> preview already shown; open history via 'o'
             pass
+
+    # Ensure Enter on the DataTable triggers navigation even if the widget handles the key
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:  # type: ignore
+        self.action_enter_selected()
 
     def action_go_up(self) -> None:
         if os.path.abspath(self.current_path) == os.path.abspath(self.repo_path):
