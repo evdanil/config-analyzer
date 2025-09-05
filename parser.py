@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, NamedTuple, Tuple
 from dateutil.parser import parse as date_parse
 
@@ -93,11 +93,18 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
     # Fallbacks
     if ts is None:
         try:
-            ts = datetime.fromtimestamp(os.path.getmtime(file_path))
+            # Use UTC-aware timestamp from file mtime
+            ts = datetime.fromtimestamp(os.path.getmtime(file_path), tz=timezone.utc)
         except OSError:
-            ts = datetime.now()
+            ts = datetime.now(timezone.utc)
     if author is None:
         author = "unknown"
+
+    # Normalize to timezone-aware UTC for consistent comparisons
+    if ts.tzinfo is None or (ts.tzinfo and ts.tzinfo.utcoffset(ts) is None):
+        ts = ts.replace(tzinfo=timezone.utc)
+    else:
+        ts = ts.astimezone(timezone.utc)
 
     # Determine where the real config body starts; strip common preambles
     lines = full_content.splitlines()
