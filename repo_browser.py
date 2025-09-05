@@ -1,29 +1,4 @@
 import os
-
-
-    class BrowserDataTable(DataTable):
-        BINDINGS = [
-            Binding("home", "goto_first_row", "First", show=False),
-            Binding("end", "goto_last_row", "Last", show=False),
-        ]
-
-        def action_goto_first_row(self) -> None:
-            try:
-                if self.row_count:
-                    self.cursor_coordinate = (0, 0)
-            except Exception:
-                pass
-
-        def action_goto_last_row(self) -> None:
-            try:
-                rc = self.row_count
-                if rc:
-                    self.cursor_coordinate = (rc - 1, 0)
-            except Exception:
-                pass
-
-
-import os
 from typing import List, Optional
 
 from textual.app import App, ComposeResult
@@ -36,6 +11,26 @@ from parser import parse_snapshot, Snapshot
 from debug import get_logger
 from version import __version__
 
+class BrowserDataTable(DataTable):
+    BINDINGS = [
+        Binding("home", "goto_first_row", "First", show=False),
+        Binding("end", "goto_last_row", "Last", show=False),
+    ]
+    
+    def action_goto_first_row(self) -> None:
+        try:
+            if self.row_count:
+                self.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+        
+    def action_goto_last_row(self) -> None:
+        try:
+            rc = self.row_count
+            if rc:
+                self.cursor_coordinate = (rc - 1, 0)
+        except Exception:
+            pass
 
 class RepoBrowserApp(App):
     TITLE = "ConfigAnalyzer"
