@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
+from rich import box
 
 # Use a forward reference to avoid circular import
 if TYPE_CHECKING:
@@ -55,6 +56,8 @@ def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Table
         expand=True,
         pad_edge=False,
         show_lines=False,
+        show_edge=False,
+        box=box.SIMPLE,
     )
     table.add_column(snapshot1.original_filename, overflow="fold")
     table.add_column(snapshot2.original_filename, overflow="fold")

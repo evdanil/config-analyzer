@@ -35,17 +35,18 @@ class RepoBrowserApp(App):
         Binding("o", "open_history", "Open History"),
     ]
 
-    def __init__(self, repo_path: str):
+    def __init__(self, repo_path: str, scroll_to_end: bool = False):
         super().__init__()
         self.repo_path = os.path.abspath(repo_path)
         self.current_path = self.repo_path
         self.selected_device_name: Optional[str] = None
+        self.scroll_to_end = scroll_to_end
 
     def compose(self) -> ComposeResult:
         yield Header()
         self.table = DataTable(id="left")
         self.table.cursor_type = "row"
-        self.preview = RichLog(id="right", wrap=True, highlight=False)
+        self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
         yield Horizontal(self.table, self.preview)
         yield Footer()
 

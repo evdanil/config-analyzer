@@ -64,24 +64,27 @@ class CommitSelectorApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        # Create persistent widgets once; we'll re-mount them when layout changes
+        # Persistent widgets
         self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)  # type: ignore[attr-defined]
+        self.diff_view.can_focus = False
         self.table = SelectionDataTable(id="commit_table")  # type: ignore[attr-defined]
         self.table_container = Container(self.table, id="table-container")  # type: ignore[attr-defined]
-        # Main panel placeholder to swap orientations
-        self.main_panel = Container(id="main-panel")  # type: ignore[attr-defined]
+        # Two orientation containers kept mounted; we toggle visibility and order
+        self.h_container = Horizontal(id="h-container")  # type: ignore[attr-defined]
+        self.v_container = Vertical(id="v-container")    # type: ignore[attr-defined]
+        # Main holder with a layout class
+        self.main_panel = Container(self.h_container, self.v_container, id="main-panel")  # type: ignore[attr-defined]
         yield self.main_panel
         yield Footer()
 
     async def on_ready(self) -> None:
-        # Mount initial layout, then populate the table
-        self._mount_layout()
+        # Build initial layout, then populate the table
+        self._apply_layout()
         self.setup_table()
+        self.table.focus()
 
-    def _mount_layout(self) -> None:
-        # Rebuild the orientation container inside main panel
-        main = self.query_one("#main-panel", Container)
-        # Detach our child widgets from any previous parent to avoid mount conflicts
+    def _apply_layout(self) -> None:
+        # Ensure widgets are not attached to any container
         try:
             if self.table_container.parent is not None:
                 self.table_container.remove()
@@ -92,21 +95,46 @@ class CommitSelectorApp(App):
                 self.diff_view.remove()
         except Exception:
             pass
-        # Remove any previous orientation container
-        try:
-            for child in list(main.children):
-                child.remove()
-        except Exception:
-            pass
 
-        # Determine widget order based on layout
+        # Reset containers' children
+        for cont in (self.h_container, self.v_container):
+            try:
+                for child in list(cont.children):
+                    child.remove()
+            except Exception:
+                pass
+
+        # Apply classes on the main panel for CSS borders
+        main = self.main_panel
+        # Remove any existing layout-* class
+        for c in list(main.classes):
+            if str(c).startswith("layout-"):
+                main.remove_class(str(c))
+        main.add_class(f"layout-{self.layout}")
+
+        # Arrange widgets in the proper container and order
         if self.layout in ("right", "left"):
-            ordered_widgets = (self.diff_view, self.table_container) if self.layout == "left" else (self.table_container, self.diff_view)
-            container = Horizontal(*ordered_widgets, classes=f"layout-{self.layout}")
+            # Horizontal
+            if self.layout == "left":
+                self.h_container.mount(self.diff_view)
+                self.h_container.mount(self.table_container)
+            else:
+                self.h_container.mount(self.table_container)
+                self.h_container.mount(self.diff_view)
+            # Show horizontal, hide vertical
+            self.h_container.styles.display = "block"
+            self.v_container.styles.display = "none"
         else:
-            ordered_widgets = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
-            container = Vertical(*ordered_widgets, classes=f"layout-{self.layout}")
-        main.mount(container)
+            # Vertical
+            if self.layout == "top":
+                self.v_container.mount(self.diff_view)
+                self.v_container.mount(self.table_container)
+            else:
+                self.v_container.mount(self.table_container)
+                self.v_container.mount(self.diff_view)
+            # Show vertical, hide horizontal
+            self.v_container.styles.display = "block"
+            self.h_container.styles.display = "none"
 
     def setup_table(self) -> None:
         table = self.table
@@ -147,10 +175,12 @@ class CommitSelectorApp(App):
         diff_view.clear()
         diff_view.write(renderable)
         diff_view.styles.visibility = "visible"
+        diff_view.can_focus = True
         diff_view.focus()
 
     def hide_diff_panel(self) -> None:
         self.diff_view.styles.visibility = "hidden"
+        self.diff_view.can_focus = False
         self.show_hide_diff_key = False
         self.show_focus_next_key = False
         self.table.focus()
@@ -198,7 +228,7 @@ class CommitSelectorApp(App):
         except ValueError:
             idx = 0
         self.layout = order[(idx + 1) % len(order)]
-        self._mount_layout()
+        self._apply_layout()
         # Keep focus sensible
         if self.show_hide_diff_key:
             self.diff_view.focus()

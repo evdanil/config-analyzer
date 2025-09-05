@@ -42,7 +42,7 @@ def main(repo_path, device, scroll_to_end, layout):
     # If no device specified, launch the repository browser. On selection, return device name and cfg path.
     selected_cfg_path = None
     if not device:
-        browser = RepoBrowserApp(repo_path)
+        browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
         browser.run()
         if not getattr(browser, 'selected_device_name', None):
             return
