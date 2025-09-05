@@ -81,6 +81,17 @@ class CommitSelectorApp(App):
     def _mount_layout(self) -> None:
         # Rebuild the orientation container inside main panel
         main = self.query_one("#main-panel", Container)
+        # Detach our child widgets from any previous parent to avoid mount conflicts
+        try:
+            if self.table_container.parent is not None:
+                self.table_container.remove()
+        except Exception:
+            pass
+        try:
+            if self.diff_view.parent is not None:
+                self.diff_view.remove()
+        except Exception:
+            pass
         # Remove any previous orientation container
         try:
             for child in list(main.children):
@@ -167,7 +178,7 @@ class CommitSelectorApp(App):
                 oldest_key = self.selected_keys.pop(0)
                 table.update_cell(oldest_key, "selected_col", "")
             self.selected_keys.append(row_key)
-            table.update_cell(row_key, "selected_col", "[green][x][/green]")
+            table.update_cell(row_key, "selected_col", Text("x", style="green"))
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:
