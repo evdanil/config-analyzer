@@ -1,8 +1,8 @@
 import os
 import re
 from datetime import datetime
-from typing import Optional, NamedTuple, Tuple
-from dateutil.parser import parse as date_parse
+from typing import Optional, NamedTuple
+from dateutil.parser import parse
 
 # Using a NamedTuple for a lightweight, immutable data structure.
 class Snapshot(NamedTuple):
@@ -13,111 +13,53 @@ class Snapshot(NamedTuple):
     content_body: str
     original_filename: str
 
-# Pre-compiled regexes for efficiency.
-_CHANGE_CISCO_RE = re.compile(r"^\!\s*Last configuration change at\s*(.*?)\s*by\s*(\S+)\s*$", re.MULTILINE)
-_AUTHOR_HEADER_RE = re.compile(r"^(?:[#;!%\s]*)(?:Last\s*Updated\s*By|Updated-?by|Author|Owner|User(?:name)?|Changed-?by)\s*[:=-]\s*(.+)$", re.IGNORECASE)
-_DATE_HEADER_RE = re.compile(r"^(?:[#;!%\s]*)(?:Last\s*Updated|Updated|Date|Timestamp)\s*[:=-]\s*(.+)$", re.IGNORECASE)
-_FILENAME_DATE_RE = re.compile(r"(\d{4}[-_]?\d{2}[-_]?\d{2}[ T_]?\d{2}[:-]?\d{2}(?:[:-]?\d{2})?)")
-_FILENAME_USER_RE = re.compile(r"(?:user[-_])([A-Za-z0-9._-]+)|(?:^|__)by[-_]?([A-Za-z0-9._-]+)", re.IGNORECASE)
-
-def _safe_read(path: str) -> Optional[str]:
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
-    except OSError:
-        return None
-
-def _extract_metadata_from_text(text: str) -> Tuple[Optional[str], Optional[datetime]]:
-    # Cisco-style single line
-    m = _CHANGE_CISCO_RE.search(text)
-    if m:
-        date_str, author = m.groups()
-        try:
-            ts = date_parse(date_str.replace("GMT", "+0000"))
-            return author.strip(), ts
-        except Exception:
-            # fallthrough to other heuristics
-            pass
-
-    # Scan first N lines for generic headers
-    head = "\n".join(text.splitlines()[:50])
-    author = None
-    ts = None
-    ma = _AUTHOR_HEADER_RE.search(head)
-    if ma:
-        author = ma.group(1).strip()
-    md = _DATE_HEADER_RE.search(head)
-    if md:
-        try:
-            ts = date_parse(md.group(1).strip())
-        except Exception:
-            ts = None
-
-    return author, ts
-
-def _extract_metadata_from_filename(filename: str) -> Tuple[Optional[str], Optional[datetime]]:
-    author = None
-    ts = None
-    md = _FILENAME_DATE_RE.search(filename)
-    if md:
-        try:
-            ts = date_parse(md.group(1))
-        except Exception:
-            ts = None
-
-    mu = _FILENAME_USER_RE.search(filename)
-    if mu:
-        author = next((g for g in mu.groups() if g), None)
-    return author, ts
+# Pre-compile the regex for efficiency.
+CHANGE_RE = re.compile(r"^\! Last configuration change at (.*?) by (\S+)$", re.MULTILINE)
 
 def parse_snapshot(file_path: str) -> Optional[Snapshot]:
     """
-    Parse a configuration file to extract metadata and content heuristically.
+    Parses a configuration snapshot file to extract metadata and content.
 
-    - Attempts Cisco-style header, generic headers, then filename hints.
-    - Falls back to file mtime for timestamp and "unknown" for author.
-    - Always returns a Snapshot if the file is readable.
+    Args:
+        file_path: The path to the configuration snapshot file.
+
+    Returns:
+        A Snapshot object if parsing is successful, otherwise None.
     """
-    full_content = _safe_read(file_path)
-    if full_content is None:
+    try:
+        with open(file_path, 'r') as f:
+            full_content = f.read()
+    except IOError:
         return None
 
-    # Heuristic metadata extraction
-    author, ts = _extract_metadata_from_text(full_content)
-    if ts is None or author is None:
-        # Use filename hints where available
-        f_author, f_ts = _extract_metadata_from_filename(os.path.basename(file_path))
-        author = author or f_author
-        ts = ts or f_ts
+    match = CHANGE_RE.search(full_content)
+    if not match:
+        return None
 
-    # Fallbacks
-    if ts is None:
-        try:
-            ts = datetime.fromtimestamp(os.path.getmtime(file_path))
-        except OSError:
-            ts = datetime.now()
-    if author is None:
-        author = "unknown"
+    date_str, author = match.groups()
 
-    # Determine where the real config body starts; strip common preambles
+    try:
+        # dateutil.parser is excellent at handling various date formats.
+        timestamp = parse(date_str.replace("GMT", "+0000"))
+    except (ValueError, TypeError):
+        return None
+        
+    # Simple logic to split frontmatter from the body. Assumes the first
+    # line not starting with '!' or 'Building' or 'Current' marks the real config.
     lines = full_content.splitlines()
     body_start_index = 0
     for i, line in enumerate(lines):
-        # Skip empty lines or common banner/preamble markers
-        if not line:
-            continue
-        if line.startswith(("!", "#", ";", "Building", "Current", "%")):
-            continue
-        body_start_index = i
-        break
-
+        if line and not line.startswith(('!', 'Building', 'Current')):
+            body_start_index = i
+            break
+            
     content_body = "\n".join(lines[body_start_index:])
     original_filename = os.path.basename(file_path)
 
     return Snapshot(
         path=file_path,
         author=author,
-        timestamp=ts,
+        timestamp=timestamp,
         content_body=content_body,
-        original_filename=original_filename,
+        original_filename=original_filename
     )

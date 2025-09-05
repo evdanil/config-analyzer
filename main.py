@@ -14,9 +14,8 @@ from tui import CommitSelectorApp
 )
 @click.option(
     '--device',
-    required=False,
-    default=None,
-    help="Optional device name (without .cfg). If provided, opens its snapshot view."
+    required=True,
+    help="Name of the device folder inside the history folder."
 )
 @click.option(
     '--scroll-to-end',
@@ -38,63 +37,39 @@ def main(repo_path, device, scroll_to_end, layout):
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
-    # If no device specified, repo browser will be implemented in a later step.
-    if not device:
-        console.print("[yellow]Repository browser is not implemented yet in this step. Please provide --device.[/yellow]")
+    device_path = os.path.join(repo_path, 'history', device)
+
+    if not os.path.isdir(device_path):
+        console.print(f"[bold red]Error:[/bold red] Device folder '{device}' not found at '{device_path}'")
         return
 
-    # Resolve device snapshots directory under history
-    device_history_path = os.path.join(repo_path, 'history', device)
-    if not os.path.isdir(device_history_path):
-        console.print(f"[bold red]Error:[/bold red] Device history folder '{device}' not found at '{device_history_path}'")
-        return
-
-    # Find current device config outside of any 'history' folder
-    current_config_path = None
-    for root, dirs, files in os.walk(repo_path):
-        # prune any 'history' directories from traversal
-        dirs[:] = [d for d in dirs if d.lower() != 'history']
-        if f"{device}.cfg" in files:
-            current_config_path = os.path.join(root, f"{device}.cfg")
-            break
-
-    # Collect snapshot files from history
     config_files = sorted([
-        os.path.join(device_history_path, f)
-        for f in os.listdir(device_history_path) if os.path.isfile(os.path.join(device_history_path, f))
+        os.path.join(device_path, f)
+        for f in os.listdir(device_path) if os.path.isfile(os.path.join(device_path, f))
     ])
 
-    if not config_files and not current_config_path:
-        console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
+    if not config_files:
+        console.print(f"[bold yellow]Warning:[/bold yellow] No configuration files found for device '{device}'.")
         return
 
     snapshots = []
     with console.status("[cyan]Parsing configuration snapshots...[/cyan]"):
-        # Include current config if available
-        if current_config_path:
-            current_snapshot = parse_snapshot(current_config_path)
-            if current_snapshot:
-                # Make it visually distinct in the table
-                current_snapshot = current_snapshot._replace(original_filename=f"Current ({os.path.basename(current_config_path)})")
-                snapshots.append(current_snapshot)
-
         for f in config_files:
             snapshot = parse_snapshot(f)
             if snapshot:
                 snapshots.append(snapshot)
-
-    # Sort chronologically
+    
     snapshots.sort(key=lambda s: s.timestamp)
 
-    # Warn if fewer than 2, but still launch the UI to allow preview
     if len(snapshots) < 2:
-        console.print("[bold yellow]Note:[/bold yellow] Fewer than two items available; select two to see a diff when more are present.")
+        console.print("[bold yellow]Need at least two valid snapshots to compare.[/bold yellow]")
+        return
 
     try:
         app = CommitSelectorApp(
-            snapshots_data=snapshots,
-            scroll_to_end=scroll_to_end,
-            layout=layout,
+            snapshots_data=snapshots, # Pass snapshots directly
+            scroll_to_end=scroll_to_end, 
+            layout=layout
         )
         app.run()
 
