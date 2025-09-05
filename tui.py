@@ -4,7 +4,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
 from parser import Snapshot
-from differ import get_diff
+from differ import get_diff, get_diff_side_by_side
 
 
 class DiffViewLog(RichLog):
@@ -48,6 +48,7 @@ class CommitSelectorApp(App):
         Binding("space", "toggle_row", "Toggle Select"),
         Binding("tab", "focus_next", "Switch Panel", show=show_focus_next_key),
         Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
+        Binding("d", "toggle_diff_mode", "Toggle Diff View"),
     ]
 
     def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = "right"):
@@ -57,6 +58,7 @@ class CommitSelectorApp(App):
         self.layout = layout
         self.selected_keys: list[str] = []
         self.ordered_keys: list[str] = []
+        self.diff_mode: str = "unified"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -105,11 +107,14 @@ class CommitSelectorApp(App):
         if snapshot1.timestamp > snapshot2.timestamp:
             snapshot1, snapshot2 = snapshot2, snapshot1
 
-        diff_syntax = get_diff(snapshot1, snapshot2)
+        if self.diff_mode == "side-by-side":
+            renderable = get_diff_side_by_side(snapshot1, snapshot2)
+        else:
+            renderable = get_diff(snapshot1, snapshot2)
 
         diff_view = self.query_one("#diff_view", DiffViewLog)
         diff_view.clear()
-        diff_view.write(diff_syntax)
+        diff_view.write(renderable)
         diff_view.styles.visibility = "visible"
         diff_view.focus()
 
@@ -148,3 +153,8 @@ class CommitSelectorApp(App):
         else:
             self.hide_diff_panel()
 
+    def action_toggle_diff_mode(self) -> None:
+        self.diff_mode = "side-by-side" if self.diff_mode == "unified" else "unified"
+        # If two selected and diff visible, re-render
+        if len(self.selected_keys) == 2 and self.query_one("#diff_view", DiffViewLog).styles.visibility == "visible":
+            self.show_diff()

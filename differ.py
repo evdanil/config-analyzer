@@ -1,6 +1,8 @@
 import difflib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
 
 # Use a forward reference to avoid circular import
 if TYPE_CHECKING:
@@ -32,3 +34,48 @@ def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:
     diff_text = "".join(diff_lines)
     return Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
     
+def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Table:
+    """
+    Generates a side-by-side diff table between two snapshots.
+
+    Left column is snapshot1, right column is snapshot2. Colors:
+    - red: deletion (only on left)
+    - green: insertion (only on right)
+    - yellow: replacement (both sides differ)
+    - default: equal
+    """
+    left_lines: List[str] = snapshot1.content_body.splitlines()
+    right_lines: List[str] = snapshot2.content_body.splitlines()
+
+    sm = difflib.SequenceMatcher(None, left_lines, right_lines, autojunk=False)
+
+    table = Table(
+        show_header=True,
+        header_style="bold",
+        expand=True,
+        pad_edge=False,
+        show_lines=False,
+    )
+    table.add_column(snapshot1.original_filename, overflow="fold")
+    table.add_column(snapshot2.original_filename, overflow="fold")
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for a, b in zip(left_lines[i1:i2], right_lines[j1:j2]):
+                table.add_row(Text(a), Text(b))
+        elif tag == "replace":
+            left_block = left_lines[i1:i2]
+            right_block = right_lines[j1:j2]
+            max_len = max(len(left_block), len(right_block))
+            for k in range(max_len):
+                a = left_block[k] if k < len(left_block) else ""
+                b = right_block[k] if k < len(right_block) else ""
+                table.add_row(Text(a, style="yellow"), Text(b, style="yellow"))
+        elif tag == "delete":
+            for a in left_lines[i1:i2]:
+                table.add_row(Text(a, style="red"), Text(""))
+        elif tag == "insert":
+            for b in right_lines[j1:j2]:
+                table.add_row(Text(""), Text(b, style="green"))
+
+    return table
