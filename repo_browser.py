@@ -36,6 +36,7 @@ class RepoBrowserApp(App):
         Binding("right", "enter_selected", "Enter/Open"),
         Binding("backspace", "go_up", "Up"),
         Binding("left", "go_up", "Up"),
+        Binding("l", "toggle_layout", "Toggle Layout"),
         Binding("home", "cursor_home", "First"),
         Binding("end", "cursor_end", "Last"),
     ]
@@ -60,17 +61,36 @@ class RepoBrowserApp(App):
         self.table = DataTable(id="left")
         self.table.cursor_type = "row"
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
-        yield Horizontal(self.table, self.preview)
-        yield Static("Tip: Press Enter to open history for a device", id="tips")
+        self.main_panel = Container(id="browser-main")
+        yield self.main_panel
+        yield Static("Tips: Enter=open, Backspace=up, L=layout, Home/End=jump, Q=quit", id="tips")
         yield Footer()
 
     def on_mount(self) -> None:
         self._setup_table()
         if self.start_path and os.path.isdir(self.start_path):
             self.current_path = self.start_path
+        self._apply_layout()
         self._load_directory(self.current_path)
         self.logr.debug("mounted at %s", self.current_path)
         self.table.focus()
+
+    def _apply_layout(self) -> None:
+        # Clear and mount orientation container
+        try:
+            for child in list(self.main_panel.children):
+                child.remove()
+        except Exception:
+            pass
+        if not hasattr(self, 'layout'):
+            self.layout = 'right'
+        if self.layout in ('right', 'left'):
+            ordered = (self.preview, self.table) if self.layout == 'left' else (self.table, self.preview)
+            container = Horizontal(*ordered)
+        else:
+            ordered = (self.preview, self.table) if self.layout == 'top' else (self.table, self.preview)
+            container = Container(Vertical(*ordered))
+        self.main_panel.mount(container)
 
     def _setup_table(self) -> None:
         t = self.table
@@ -165,7 +185,7 @@ class RepoBrowserApp(App):
         # If device, preview content; if folder, show hint
         if key == ".." or os.path.isdir(key):
             self.preview.clear()
-            self.preview.write(f"[b]Path:[/b] {self.current_path}\nEnter to navigate. Press q to quit.")
+            self.preview.write(f"Path: {self.current_path}\nEnter to navigate. Press Q to quit.")
         else:
             snap = parse_snapshot(key)
             self.preview.clear()
@@ -223,5 +243,14 @@ class RepoBrowserApp(App):
                 self.table.cursor_coordinate = (rc - 1, 0)
         except Exception:
             pass
+
+    def action_toggle_layout(self) -> None:
+        order = ["right", "bottom", "left", "top"]
+        try:
+            idx = order.index(getattr(self, 'layout', 'right'))
+        except ValueError:
+            idx = 0
+        self.layout = order[(idx + 1) % len(order)]
+        self._apply_layout()
 
     # 'o' binding removed; Enter handles both folders and device open

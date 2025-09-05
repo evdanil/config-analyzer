@@ -16,11 +16,31 @@ class DiffViewLog(RichLog):
 
 
 class SelectionDataTable(DataTable):
-    BINDINGS = []
+    BINDINGS = [
+        Binding("home", "goto_first_row", "First", show=False),
+        Binding("end", "goto_last_row", "Last", show=False),
+    ]
+
+    def action_goto_first_row(self) -> None:
+        try:
+            if self.row_count:
+                self.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+
+    def action_goto_last_row(self) -> None:
+        try:
+            rc = self.row_count
+            if rc:
+                self.cursor_coordinate = (rc - 1, 0)
+        except Exception:
+            pass
 
 
 class CommitSelectorApp(App):
     TITLE = "ConfigAnalyzer"
+    SUB_TITLE = f"v{__version__} — Snapshot History"
+
     DEFAULT_CSS = """
     #table-container, #diff_view {
         background: $surface;
@@ -54,9 +74,9 @@ class CommitSelectorApp(App):
         Binding("tab", "focus_next", "Switch Panel", show=show_focus_next_key),
         Binding("escape", "hide_diff", "Back / Hide Diff", show=show_hide_diff_key),
         Binding("backspace", "go_back", "Back to Devices"),
-        Binding("d", "toggle_diff_mode", "Toggle Diff View"),
         Binding("home", "cursor_home", "First"),
         Binding("end", "cursor_end", "Last"),
+        Binding("d", "toggle_diff_mode", "Toggle Diff View"),
         Binding("l", "toggle_layout", "Toggle Layout"),
         Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
     ]
@@ -72,8 +92,6 @@ class CommitSelectorApp(App):
         self.diff_mode: str = "unified"
         self.hide_unchanged_sbs: bool = False
         self.navigate_back: bool = False
-
-    SUB_TITLE = f"v{__version__} — Snapshot History"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -273,6 +291,7 @@ class CommitSelectorApp(App):
         self.hide_unchanged_sbs = not self.hide_unchanged_sbs
         if self.diff_mode == "side-by-side" and len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
+
     def action_cursor_home(self) -> None:
         try:
             if self.table.row_count:
@@ -287,3 +306,4 @@ class CommitSelectorApp(App):
                 self.table.cursor_coordinate = (rc - 1, 0)
         except Exception:
             pass
+
