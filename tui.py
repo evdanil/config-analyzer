@@ -77,11 +77,20 @@ class CommitSelectorApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Build initial layout, then populate the table
+        # Build initial layout; _apply_layout() will populate the table
         self.logr.debug("on_mount: building layout=%s", self.layout)
         self._apply_layout()
-        self.setup_table()
         # Focus after the first refresh to avoid any focus stealing
+        def _focus_table() -> None:
+            try:
+                self.table.focus()
+                self.logr.debug("on_mount: focused table (post-refresh); rows=%s", getattr(self.table, 'row_count', 'n/a'))
+            except Exception as e:
+                self.logr.exception("on_mount: table.focus failed: %s", e)
+        try:
+            self.call_after_refresh(_focus_table)
+        except Exception:
+            _focus_table()
         def _focus_table() -> None:
             try:
                 self.table.focus()
@@ -132,11 +141,18 @@ class CommitSelectorApp(App):
     def setup_table(self) -> None:
         self.logr.debug("setup_table: %d snapshots", len(self.snapshots_data))
         table = self.table
+        # Ensure we start with a clean model for rebuilds
+        try:
+            table.clear()
+        except Exception:
+            pass
         table.cursor_type = "row"
         table.add_column("Sel", key="selected_col", width=3)
         table.add_column("Name", key="name_col")
         table.add_column("Date", key="date_col")
         table.add_column("Author", key="author_col")
+        # Rebuild ordered_keys to match current rows
+        self.ordered_keys = []
         for snapshot in self.snapshots_data:
             key = snapshot.path  # Use full path as unique key
             self.ordered_keys.append(key)
@@ -152,7 +168,6 @@ class CommitSelectorApp(App):
             table.focus()
         except Exception:
             self.logr.debug("setup_table: table.focus ignored")
-
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
         self.show_focus_next_key = True
