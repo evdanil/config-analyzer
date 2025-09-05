@@ -48,19 +48,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
     if debug:
         os.environ['CONFIG_ANALYZER_DEBUG'] = '1'
         console.print('[dim]Debug logging enabled -> tui_debug.log[/dim]')
-    # Loop to allow returning to the device browser from snapshot view
-    selected_cfg_path = None
-    while True:
-        # If no device specified or user requested back, launch the browser
-        if not device:
-            browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
-            browser.run()
-            if not getattr(browser, 'selected_device_name', None):
-                return
-            device = browser.selected_device_name
-            selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
-
-    # Resolve device snapshots directory under history (prefer nearest to selected cfg path)
+    # Helper: resolve device snapshots directory under history (prefer nearest to selected cfg path)
     def _find_device_history(repo_root, dev, cfg_path):
         # Prefer nearest 'history/<dev>' relative to the selected cfg directory, walking up to repo root
         if cfg_path:
@@ -92,11 +80,23 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             return hits[0]
         return None
 
-        device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
-    if not device_history_path:
-        console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
+    # Loop to allow returning to the device browser from snapshot view
+    selected_cfg_path = None
+    while True:
+        # If no device specified or user requested back, launch the browser
+        if not device:
+            browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
+            browser.run()
+            if not getattr(browser, 'selected_device_name', None):
+                return
+            device = browser.selected_device_name
+            selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
 
-    # Find current device config outside of any 'history' folder
+        device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
+        if not device_history_path:
+            console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
+
+        # Find current device config outside of any 'history' folder
         current_config_path = None
         if selected_cfg_path:
             current_config_path = selected_cfg_path
@@ -108,7 +108,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
                     current_config_path = os.path.join(root, f"{device}.cfg")
                     break
 
-    # Collect snapshot files from history
+        # Collect snapshot files from history
         config_files = []
         if device_history_path and os.path.isdir(device_history_path):
             config_files = sorted([
@@ -135,7 +135,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
                 if snapshot:
                     snapshots.append(snapshot)
 
-    # Order: Current first (if present), then snapshots by timestamp DESC (most recent on top)
+        # Order: Current first (if present), then snapshots by timestamp DESC (most recent on top)
         current_item = None
         others = []
         for s in snapshots:
@@ -146,7 +146,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
         others.sort(key=lambda s: s.timestamp, reverse=True)
         snapshots = ([current_item] if current_item else []) + others
 
-    # Warn if fewer than 2, but still launch the UI to allow preview
+        # Warn if fewer than 2, but still launch the UI to allow preview
         if len(snapshots) < 2:
             console.print("[bold yellow]Note:[/bold yellow] Fewer than two items available; select two to see a diff when more are present.")
 
