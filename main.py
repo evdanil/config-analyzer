@@ -4,6 +4,7 @@ from rich.console import Console
 
 from parser import parse_snapshot
 from tui import CommitSelectorApp
+from repo_browser import RepoBrowserApp
 
 @click.command()
 @click.option(
@@ -38,16 +39,18 @@ def main(repo_path, device, scroll_to_end, layout):
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
-    # If no device specified, repo browser will be implemented in a later step.
+    # If no device specified, launch the repository browser. On selection, return device name.
     if not device:
-        console.print("[yellow]Repository browser is not implemented yet in this step. Please provide --device.[/yellow]")
-        return
+        browser = RepoBrowserApp(repo_path)
+        browser.run()
+        if not getattr(browser, 'selected_device_name', None):
+            return
+        device = browser.selected_device_name
 
     # Resolve device snapshots directory under history
     device_history_path = os.path.join(repo_path, 'history', device)
     if not os.path.isdir(device_history_path):
-        console.print(f"[bold red]Error:[/bold red] Device history folder '{device}' not found at '{device_history_path}'")
-        return
+        console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
 
     # Find current device config outside of any 'history' folder
     current_config_path = None
@@ -59,10 +62,12 @@ def main(repo_path, device, scroll_to_end, layout):
             break
 
     # Collect snapshot files from history
-    config_files = sorted([
-        os.path.join(device_history_path, f)
-        for f in os.listdir(device_history_path) if os.path.isfile(os.path.join(device_history_path, f))
-    ])
+    config_files = []
+    if os.path.isdir(device_history_path):
+        config_files = sorted([
+            os.path.join(device_history_path, f)
+            for f in os.listdir(device_history_path) if os.path.isfile(os.path.join(device_history_path, f))
+        ])
 
     if not config_files and not current_config_path:
         console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
