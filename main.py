@@ -85,7 +85,11 @@ def main(repo_path, device, scroll_to_end, layout, debug):
     while True:
         # If no device specified or user requested back, launch the browser
         if not device:
-            browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
+            browser = RepoBrowserApp(
+                repo_path,
+                scroll_to_end=scroll_to_end,
+                start_path=selected_cfg_path,
+            )
             browser.run()
             if not getattr(browser, 'selected_device_name', None):
                 return
@@ -164,8 +168,9 @@ def main(repo_path, device, scroll_to_end, layout, debug):
 
         # If user requested to go back, reset device to reopen the browser
         if getattr(app, 'navigate_back', False):
+            # Reopen browser at the directory of current config if available
             device = None
-            selected_cfg_path = None
+            selected_cfg_path = current_config_path
             continue
         break
 

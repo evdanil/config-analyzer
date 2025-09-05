@@ -29,20 +29,24 @@ class RepoBrowserApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("enter", "enter_selected", "Enter"),
-        Binding("right", "enter_selected", "Enter"),
+        Binding("enter", "enter_selected", "Enter/Open"),
+        Binding("right", "enter_selected", "Enter/Open"),
         Binding("backspace", "go_up", "Up"),
         Binding("left", "go_up", "Up"),
-        Binding("o", "open_history", "Open History"),
     ]
 
-    def __init__(self, repo_path: str, scroll_to_end: bool = False):
+    def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None):
         super().__init__()
         self.logr = get_logger("browser")
         self.repo_path = os.path.abspath(repo_path)
         self.current_path = self.repo_path
         self.selected_device_name: Optional[str] = None
         self.scroll_to_end = scroll_to_end
+        self.start_path = start_path
+        self._start_highlight_file: Optional[str] = None
+        if self.start_path and os.path.isfile(self.start_path):
+            self._start_highlight_file = os.path.abspath(self.start_path)
+            self.start_path = os.path.dirname(self._start_highlight_file)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -54,6 +58,8 @@ class RepoBrowserApp(App):
 
     def on_mount(self) -> None:
         self._setup_table()
+        if self.start_path and os.path.isdir(self.start_path):
+            self.current_path = self.start_path
         self._load_directory(self.current_path)
         self.logr.debug("mounted at %s", self.current_path)
         self.table.focus()
@@ -113,9 +119,18 @@ class RepoBrowserApp(App):
             t.add_row("dev", f, author, ts)
             self._row_keys.append(full)
 
-        # Move cursor to first row if available
+        # Move cursor to first row or highlight the provided file
         if t.row_count:
-            t.cursor_coordinate = (0, 0)
+            if self._start_highlight_file:
+                try:
+                    idx = self._row_keys.index(self._start_highlight_file)
+                    t.cursor_coordinate = (idx, 0)
+                except ValueError:
+                    t.cursor_coordinate = (0, 0)
+                finally:
+                    self._start_highlight_file = None
+            else:
+                t.cursor_coordinate = (0, 0)
         self.logr.debug("load_directory: rows=%s", t.row_count)
 
     def _selected_row_key(self) -> Optional[str]:
@@ -157,8 +172,12 @@ class RepoBrowserApp(App):
         if os.path.isdir(key):
             self._load_directory(key)
         else:
-            # Device file selected -> preview already shown; open history via 'o'
-            pass
+            # Device file selected -> open history directly
+            base = os.path.basename(key)
+            if base.lower().endswith(".cfg"):
+                self.selected_device_name = os.path.splitext(base)[0]
+                self.selected_device_cfg_path = key
+                self.exit()
 
     # Ensure Enter on the DataTable triggers navigation even if the widget handles the key
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:  # type: ignore
@@ -170,16 +189,4 @@ class RepoBrowserApp(App):
         parent = os.path.dirname(self.current_path)
         self._load_directory(parent)
 
-    def action_open_history(self) -> None:
-        key = self._selected_row_key()
-        self.logr.debug("open_history: %s", key)
-        if not key or os.path.isdir(key):
-            return
-        # Extract device name from filename
-        base = os.path.basename(key)
-        if not base.lower().endswith(".cfg"):
-            return
-        self.selected_device_name = os.path.splitext(base)[0]
-        self.selected_device_cfg_path = key
-        # Exit the app; main will pick up selection
-        self.exit()
+    # 'o' binding removed; Enter handles both folders and device open

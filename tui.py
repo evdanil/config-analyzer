@@ -53,6 +53,8 @@ class CommitSelectorApp(App):
         Binding("escape", "hide_diff", "Back / Hide Diff", show=show_hide_diff_key),
         Binding("backspace", "go_back", "Back to Devices"),
         Binding("d", "toggle_diff_mode", "Toggle Diff View"),
+        Binding("home", "cursor_home", "First"),
+        Binding("end", "cursor_end", "Last"),
         Binding("l", "toggle_layout", "Toggle Layout"),
         Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
     ]
@@ -267,3 +269,17 @@ class CommitSelectorApp(App):
         self.hide_unchanged_sbs = not self.hide_unchanged_sbs
         if self.diff_mode == "side-by-side" and len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
+    def action_cursor_home(self) -> None:
+        try:
+            if self.table.row_count:
+                self.table.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+
+    def action_cursor_end(self) -> None:
+        try:
+            rc = self.table.row_count
+            if rc:
+                self.table.cursor_coordinate = (rc - 1, 0)
+        except Exception:
+            pass
