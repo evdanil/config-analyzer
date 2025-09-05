@@ -50,6 +50,7 @@ class CommitSelectorApp(App):
         Binding("tab", "focus_next", "Switch Panel", show=show_focus_next_key),
         Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
         Binding("d", "toggle_diff_mode", "Toggle Diff View"),
+        Binding("l", "toggle_layout", "Toggle Layout"),
     ]
 
     def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = "right"):
@@ -63,20 +64,38 @@ class CommitSelectorApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
-        table = SelectionDataTable(id="commit_table")
-        table_container = Container(table, id="table-container")
-
-        if self.layout in ("right", "left"):
-            ordered_widgets = (diff_view, table_container) if self.layout == "left" else (table_container, diff_view)
-            yield Horizontal(*ordered_widgets, classes=f"layout-{self.layout}")
-        else:
-            ordered_widgets = (diff_view, table_container) if self.layout == "top" else (table_container, diff_view)
-            yield Vertical(*ordered_widgets, classes=f"layout-{self.layout}")
+        # Create persistent widgets once; we'll re-mount them when layout changes
+        self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)  # type: ignore[attr-defined]
+        self.table = SelectionDataTable(id="commit_table")  # type: ignore[attr-defined]
+        self.table_container = Container(self.table, id="table-container")  # type: ignore[attr-defined]
+        # Main panel placeholder to swap orientations
+        self.main_panel = Container(id="main-panel")  # type: ignore[attr-defined]
+        yield self.main_panel
         yield Footer()
 
     async def on_ready(self) -> None:
+        # Mount initial layout, then populate the table
+        self._mount_layout()
         self.setup_table()
+
+    def _mount_layout(self) -> None:
+        # Rebuild the orientation container inside main panel
+        main = self.query_one("#main-panel", Container)
+        # Remove any previous orientation container
+        try:
+            for child in list(main.children):
+                child.remove()
+        except Exception:
+            pass
+
+        # Determine widget order based on layout
+        if self.layout in ("right", "left"):
+            ordered_widgets = (self.diff_view, self.table_container) if self.layout == "left" else (self.table_container, self.diff_view)
+            container = Horizontal(*ordered_widgets, classes=f"layout-{self.layout}")
+        else:
+            ordered_widgets = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
+            container = Vertical(*ordered_widgets, classes=f"layout-{self.layout}")
+        main.mount(container)
 
     def setup_table(self) -> None:
         table = self.query_one("#commit_table", SelectionDataTable)
@@ -159,3 +178,18 @@ class CommitSelectorApp(App):
         # If two selected and diff visible, re-render
         if len(self.selected_keys) == 2 and self.query_one("#diff_view", DiffViewLog).styles.visibility == "visible":
             self.show_diff()
+
+    def action_toggle_layout(self) -> None:
+        # Cycle layout order: right -> bottom -> left -> top -> right
+        order = ["right", "bottom", "left", "top"]
+        try:
+            idx = order.index(self.layout)
+        except ValueError:
+            idx = 0
+        self.layout = order[(idx + 1) % len(order)]
+        self._mount_layout()
+        # Keep focus sensible
+        if self.show_hide_diff_key:
+            self.query_one("#diff_view", DiffViewLog).focus()
+        else:
+            self.query_one("#commit_table", SelectionDataTable).focus()
