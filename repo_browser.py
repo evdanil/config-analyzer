@@ -62,7 +62,7 @@ class RepoBrowserApp(App):
         Binding("end", "cursor_end", "Last"),
     ]
 
-    def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None, start_layout: Optional[str] = None):
+    def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None, start_layout: Optional[str] = None, history_dir: str = 'history'):
         super().__init__()
         self.logr = get_logger("browser")
         self.repo_path = os.path.abspath(repo_path)
@@ -71,6 +71,7 @@ class RepoBrowserApp(App):
         self.scroll_to_end = scroll_to_end
         self.start_path = start_path
         self.layout = start_layout or 'right'
+        self.history_dir_l = history_dir.lower()
         self._start_highlight_file: Optional[str] = None
         if self.start_path and os.path.isfile(self.start_path):
             self._start_highlight_file = os.path.abspath(self.start_path)
@@ -151,7 +152,7 @@ class RepoBrowserApp(App):
         for name in entries:
             full = os.path.join(path, name)
             if os.path.isdir(full):
-                if name.lower() == "history":
+                if name.lower() == self.history_dir_l:
                     continue
                 dirs.append(name)
             elif os.path.isfile(full) and name.lower().endswith(".cfg"):

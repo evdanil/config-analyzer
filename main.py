@@ -34,13 +34,19 @@ from repo_browser import RepoBrowserApp
     show_default=True,
 )
 @click.option(
+    '--history-dir',
+    default='history',
+    show_default=True,
+    help="Folder name that contains device history (e.g. 'history').",
+)
+@click.option(
     '--debug',
     is_flag=True,
     default=False,
     help='Enable verbose debug logging to tui_debug.log',
     show_default=True,
 )
-def main(repo_path, device, scroll_to_end, layout, debug):
+def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
     """
     An interactive tool to analyze network device configuration changes.
     """
@@ -55,7 +61,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             repo_abs = os.path.abspath(repo_root)
             cur = os.path.dirname(os.path.abspath(cfg_path))
             while True:
-                cand = os.path.join(cur, 'history', dev)
+                cand = os.path.join(cur, history_dir, dev)
                 if os.path.isdir(cand):
                     return cand
                 if os.path.abspath(cur) == repo_abs:
@@ -65,14 +71,14 @@ def main(repo_path, device, scroll_to_end, layout, debug):
                     break
                 cur = parent
         # Fallback 1: repo root history
-        cand = os.path.join(repo_root, 'history', dev)
+        cand = os.path.join(repo_root, history_dir, dev)
         if os.path.isdir(cand):
             return cand
         # Fallback 2: scan repo for any 'history/<dev>' path; pick shortest path
         hits = []
         for root, dirs, _files in os.walk(repo_root):
-            if 'history' in dirs:
-                path = os.path.join(root, 'history', dev)
+            if any(d.lower() == history_dir_l for d in dirs):
+                path = os.path.join(root, history_dir, dev)
                 if os.path.isdir(path):
                     hits.append(path)
         if hits:
@@ -97,6 +103,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
                 scroll_to_end=scroll_to_end,
                 start_path=selected_cfg_path,
                 start_layout=layout_pref,
+                history_dir=history_dir,
             )
             browser.run()
             if not getattr(browser, 'selected_device_name', None):
@@ -114,9 +121,9 @@ def main(repo_path, device, scroll_to_end, layout, debug):
         if selected_cfg_path:
             current_config_path = selected_cfg_path
         else:
-            for root, dirs, files in os.walk(repo_path):
-                # prune any 'history' directories from traversal
-                dirs[:] = [d for d in dirs if d.lower() != 'history']
+        for root, dirs, files in os.walk(repo_path):
+            # prune any 'history' directories from traversal
+            dirs[:] = [d for d in dirs if d.lower() != history_dir_l]
                 if f"{device}.cfg" in files:
                     current_config_path = os.path.join(root, f"{device}.cfg")
                     break
@@ -191,6 +198,8 @@ def main(repo_path, device, scroll_to_end, layout, debug):
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
