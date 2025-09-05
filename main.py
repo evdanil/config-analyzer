@@ -65,6 +65,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
         scroll_to_end,
     )
     # Helper: resolve device snapshots directory under history (prefer nearest to selected cfg path)
+    history_dir_l = history_dir.lower()
     def _find_device_history(repo_root, dev, cfg_path):
         # Prefer nearest 'history/<dev>' relative to the selected cfg directory, walking up to repo root
         if cfg_path:
@@ -139,9 +140,9 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
         if selected_cfg_path:
             current_config_path = selected_cfg_path
         else:
-        for root, dirs, files in os.walk(repo_path):
-            # prune any 'history' directories from traversal
-            dirs[:] = [d for d in dirs if d.lower() != history_dir_l]
+            for root, dirs, files in os.walk(repo_path):
+                # prune any history directories from traversal
+                dirs[:] = [d for d in dirs if d.lower() != history_dir_l]
                 if f"{device}.cfg" in files:
                     current_config_path = os.path.join(root, f"{device}.cfg")
                     break
