@@ -83,18 +83,9 @@ def main(repo_path, device, scroll_to_end, layout, debug):
     # Persist layout preference across views
     layout_pref = layout
 
-    # Loop to allow returning to the device browser from snapshot view
-    selected_cfg_path = None
-    while True:
-        # If no device specified or user requested back, launch the browser
+    layout_pref = layout`n    # Loop to allow returning to the device browser from snapshot view`n    selected_cfg_path = None`n    while True:`n        # If no device specified or user requested back, launch the browser
         if not device:
-            browser = RepoBrowserApp(
-                repo_path,
-                scroll_to_end=scroll_to_end,
-                start_path=selected_cfg_path,
-                start_layout=layout_pref,
-            )
-            browser.run()
+            try:\n                console.clear()\n            except Exception:\n                pass\n            browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end, start_path=selected_cfg_path, start_layout=layout_pref)\n            browser.run()
             if not getattr(browser, 'selected_device_name', None):
                 return
             device = browser.selected_device_name
@@ -160,12 +151,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             console.print("[bold yellow]Note:[/bold yellow] Fewer than two items available; select two to see a diff when more are present.")
 
         try:
-            app = CommitSelectorApp(
-                snapshots_data=snapshots,
-                scroll_to_end=scroll_to_end,
-                layout=layout_pref,
-            )
-            app.run()
+            try:\n            console.clear()\n        except Exception:\n            pass\n        app = CommitSelectorApp(snapshots_data=snapshots, scroll_to_end=scroll_to_end, layout=layout_pref)\n        app.run()
 
         except Exception as e:
             console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
@@ -183,3 +169,6 @@ def main(repo_path, device, scroll_to_end, layout, debug):
 
 if __name__ == "__main__":
     main()
+
+
+
