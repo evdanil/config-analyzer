@@ -171,5 +171,6 @@ class RepoBrowserApp(App):
         if not base.lower().endswith(".cfg"):
             return
         self.selected_device_name = os.path.splitext(base)[0]
+        self.selected_device_cfg_path = key
         # Exit the app; main will pick up selection
         self.exit()

@@ -39,34 +39,71 @@ def main(repo_path, device, scroll_to_end, layout):
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
-    # If no device specified, launch the repository browser. On selection, return device name.
+    # If no device specified, launch the repository browser. On selection, return device name and cfg path.
+    selected_cfg_path = None
     if not device:
         browser = RepoBrowserApp(repo_path)
         browser.run()
         if not getattr(browser, 'selected_device_name', None):
             return
         device = browser.selected_device_name
+        selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
 
-    # Resolve device snapshots directory under history
-    device_history_path = os.path.join(repo_path, 'history', device)
-    if not os.path.isdir(device_history_path):
+    # Resolve device snapshots directory under history (prefer nearest to selected cfg path)
+    def _find_device_history(repo_root, dev, cfg_path):
+        # Prefer nearest 'history/<dev>' relative to the selected cfg directory, walking up to repo root
+        if cfg_path:
+            repo_abs = os.path.abspath(repo_root)
+            cur = os.path.dirname(os.path.abspath(cfg_path))
+            while True:
+                cand = os.path.join(cur, 'history', dev)
+                if os.path.isdir(cand):
+                    return cand
+                if os.path.abspath(cur) == repo_abs:
+                    break
+                parent = os.path.dirname(cur)
+                if parent == cur:
+                    break
+                cur = parent
+        # Fallback 1: repo root history
+        cand = os.path.join(repo_root, 'history', dev)
+        if os.path.isdir(cand):
+            return cand
+        # Fallback 2: scan repo for any 'history/<dev>' path; pick shortest path
+        hits = []
+        for root, dirs, _files in os.walk(repo_root):
+            if 'history' in dirs:
+                path = os.path.join(root, 'history', dev)
+                if os.path.isdir(path):
+                    hits.append(path)
+        if hits:
+            hits.sort(key=lambda p: len(p))
+            return hits[0]
+        return None
+
+    device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
+    if not device_history_path:
         console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
 
     # Find current device config outside of any 'history' folder
     current_config_path = None
-    for root, dirs, files in os.walk(repo_path):
-        # prune any 'history' directories from traversal
-        dirs[:] = [d for d in dirs if d.lower() != 'history']
-        if f"{device}.cfg" in files:
-            current_config_path = os.path.join(root, f"{device}.cfg")
-            break
+    if selected_cfg_path:
+        current_config_path = selected_cfg_path
+    else:
+        for root, dirs, files in os.walk(repo_path):
+            # prune any 'history' directories from traversal
+            dirs[:] = [d for d in dirs if d.lower() != 'history']
+            if f"{device}.cfg" in files:
+                current_config_path = os.path.join(root, f"{device}.cfg")
+                break
 
     # Collect snapshot files from history
     config_files = []
-    if os.path.isdir(device_history_path):
+    if device_history_path and os.path.isdir(device_history_path):
         config_files = sorted([
             os.path.join(device_history_path, f)
-            for f in os.listdir(device_history_path) if os.path.isfile(os.path.join(device_history_path, f))
+            for f in os.listdir(device_history_path)
+            if os.path.isfile(os.path.join(device_history_path, f)) and f.lower().endswith('.cfg')
         ])
 
     if not config_files and not current_config_path:
