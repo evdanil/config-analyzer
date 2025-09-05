@@ -9,6 +9,7 @@ from debug import get_logger
 from version import __version__
 from differ import get_diff, get_diff_side_by_side
 from rich.text import Text
+from rich.syntax import Syntax
 
 
 class DiffViewLog(RichLog):
@@ -212,6 +213,7 @@ class CommitSelectorApp(App):
         self.diff_view.write(renderable)
         self.diff_view.styles.visibility = "visible"
         self.diff_view.can_focus = True  # allow Tab focus, but don't take focus now
+        # Keep focus on table
 
     def hide_diff_panel(self) -> None:
         self.logr.debug("hide_diff_panel")
@@ -259,8 +261,28 @@ class CommitSelectorApp(App):
             table.update_cell(row_key, "selected_col", Text("x", style="green"))
         if len(self.selected_keys) == 2:
             self.show_diff()
+        elif len(self.selected_keys) == 1:
+            # Show single snapshot content with syntax highlighting
+            self.show_single()
         else:
             self.hide_diff_panel()
+
+    def show_single(self) -> None:
+        try:
+            path = self.selected_keys[-1]
+        except IndexError:
+            return
+        try:
+            snap = next(s for s in self.snapshots_data if s.path == path)
+        except StopIteration:
+            return
+        self.diff_view.clear()
+        try:
+            self.diff_view.write(Syntax(snap.content_body, "ini", line_numbers=False, word_wrap=True))
+        except Exception:
+            self.diff_view.write(snap.content_body)
+        self.diff_view.styles.visibility = "visible"
+        self.diff_view.can_focus = True
 
     def action_toggle_diff_mode(self) -> None:
         self.diff_mode = "side-by-side" if self.diff_mode == "unified" else "unified"
@@ -306,4 +328,3 @@ class CommitSelectorApp(App):
                 self.table.cursor_coordinate = (rc - 1, 0)
         except Exception:
             pass
-

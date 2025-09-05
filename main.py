@@ -80,6 +80,9 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             return hits[0]
         return None
 
+    # Persist layout preference across views
+    layout_pref = layout
+
     # Loop to allow returning to the device browser from snapshot view
     selected_cfg_path = None
     while True:
@@ -89,12 +92,14 @@ def main(repo_path, device, scroll_to_end, layout, debug):
                 repo_path,
                 scroll_to_end=scroll_to_end,
                 start_path=selected_cfg_path,
+                start_layout=layout_pref,
             )
             browser.run()
             if not getattr(browser, 'selected_device_name', None):
                 return
             device = browser.selected_device_name
             selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
+            layout_pref = getattr(browser, 'layout', layout_pref)
 
         device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
         if not device_history_path:
@@ -158,7 +163,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             app = CommitSelectorApp(
                 snapshots_data=snapshots,
                 scroll_to_end=scroll_to_end,
-                layout=layout,
+                layout=layout_pref,
             )
             app.run()
 
@@ -166,6 +171,8 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
             return
 
+        # Save layout preference, then handle navigation
+        layout_pref = getattr(app, 'layout', layout_pref)
         # If user requested to go back, reset device to reopen the browser
         if getattr(app, 'navigate_back', False):
             # Reopen browser at the directory of current config if available

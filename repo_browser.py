@@ -1,9 +1,35 @@
 import os
+
+
+    class BrowserDataTable(DataTable):
+        BINDINGS = [
+            Binding("home", "goto_first_row", "First", show=False),
+            Binding("end", "goto_last_row", "Last", show=False),
+        ]
+
+        def action_goto_first_row(self) -> None:
+            try:
+                if self.row_count:
+                    self.cursor_coordinate = (0, 0)
+            except Exception:
+                pass
+
+        def action_goto_last_row(self) -> None:
+            try:
+                rc = self.row_count
+                if rc:
+                    self.cursor_coordinate = (rc - 1, 0)
+            except Exception:
+                pass
+
+
+import os
 from typing import List, Optional
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, DataTable, RichLog, Static
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical, Container
+from rich.syntax import Syntax
 from textual.binding import Binding
 
 from parser import parse_snapshot, Snapshot
@@ -13,7 +39,7 @@ from version import __version__
 
 class RepoBrowserApp(App):
     TITLE = "ConfigAnalyzer"
-    SUB_TITLE = f"v{__version__} — Device Browser"
+    SUB_TITLE = f"v{__version__} - Device Browser"
     """Simple repository browser.
 
     - Lists folders (excluding any named 'history').
@@ -41,7 +67,7 @@ class RepoBrowserApp(App):
         Binding("end", "cursor_end", "Last"),
     ]
 
-    def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None):
+    def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None, start_layout: Optional[str] = None):
         super().__init__()
         self.logr = get_logger("browser")
         self.repo_path = os.path.abspath(repo_path)
@@ -49,6 +75,7 @@ class RepoBrowserApp(App):
         self.selected_device_name: Optional[str] = None
         self.scroll_to_end = scroll_to_end
         self.start_path = start_path
+        self.layout = start_layout or 'right'
         self._start_highlight_file: Optional[str] = None
         if self.start_path and os.path.isfile(self.start_path):
             self._start_highlight_file = os.path.abspath(self.start_path)
@@ -58,7 +85,7 @@ class RepoBrowserApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        self.table = DataTable(id="left")
+        self.table = self.BrowserDataTable(id="left")
         self.table.cursor_type = "row"
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
         self.main_panel = Container(id="browser-main")
@@ -190,11 +217,18 @@ class RepoBrowserApp(App):
             snap = parse_snapshot(key)
             self.preview.clear()
             if snap:
-                self.preview.write(snap.content_body)
+                try:
+                    self.preview.write(Syntax(snap.content_body, "ini", word_wrap=True))
+                except Exception:
+                    self.preview.write(snap.content_body)
             else:
                 try:
                     with open(key, "r", encoding="utf-8", errors="replace") as f:
-                        self.preview.write(f.read())
+                        content = f.read()
+                        try:
+                            self.preview.write(Syntax(content, "ini", word_wrap=True))
+                        except Exception:
+                            self.preview.write(content)
                 except OSError as e:
                     self.preview.write(f"[red]Error reading file:[/red] {e}")
 
@@ -254,3 +288,6 @@ class RepoBrowserApp(App):
         self._apply_layout()
 
     # 'o' binding removed; Enter handles both folders and device open
+
+
+
