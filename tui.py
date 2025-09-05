@@ -6,6 +6,7 @@ from textual.reactive import reactive
 
 from parser import Snapshot
 from debug import get_logger
+from version import __version__
 from differ import get_diff, get_diff_side_by_side
 from rich.text import Text
 
@@ -19,6 +20,7 @@ class SelectionDataTable(DataTable):
 
 
 class CommitSelectorApp(App):
+    TITLE = "ConfigAnalyzer"
     DEFAULT_CSS = """
     #table-container, #diff_view {
         background: $surface;
@@ -70,6 +72,8 @@ class CommitSelectorApp(App):
         self.diff_mode: str = "unified"
         self.hide_unchanged_sbs: bool = False
         self.navigate_back: bool = False
+
+    SUB_TITLE = f"v{__version__} — Snapshot History"
 
     def compose(self) -> ComposeResult:
         yield Header()

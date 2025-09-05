@@ -2,15 +2,18 @@ import os
 from typing import List, Optional
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, RichLog
+from textual.widgets import Header, Footer, DataTable, RichLog, Static
 from textual.containers import Horizontal
 from textual.binding import Binding
 
 from parser import parse_snapshot, Snapshot
 from debug import get_logger
+from version import __version__
 
 
 class RepoBrowserApp(App):
+    TITLE = "ConfigAnalyzer"
+    SUB_TITLE = f"v{__version__} — Device Browser"
     """Simple repository browser.
 
     - Lists folders (excluding any named 'history').
@@ -33,6 +36,8 @@ class RepoBrowserApp(App):
         Binding("right", "enter_selected", "Enter/Open"),
         Binding("backspace", "go_up", "Up"),
         Binding("left", "go_up", "Up"),
+        Binding("home", "cursor_home", "First"),
+        Binding("end", "cursor_end", "Last"),
     ]
 
     def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None):
@@ -47,6 +52,8 @@ class RepoBrowserApp(App):
         if self.start_path and os.path.isfile(self.start_path):
             self._start_highlight_file = os.path.abspath(self.start_path)
             self.start_path = os.path.dirname(self._start_highlight_file)
+        # Track last directory to highlight when going up
+        self._highlight_dir_name: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -54,6 +61,7 @@ class RepoBrowserApp(App):
         self.table.cursor_type = "row"
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
         yield Horizontal(self.table, self.preview)
+        yield Static("Tip: Press Enter to open history for a device", id="tips")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -119,7 +127,7 @@ class RepoBrowserApp(App):
             t.add_row("dev", f, author, ts)
             self._row_keys.append(full)
 
-        # Move cursor to first row or highlight the provided file
+        # Move cursor to first row or highlight the provided file/dir
         if t.row_count:
             if self._start_highlight_file:
                 try:
@@ -129,6 +137,15 @@ class RepoBrowserApp(App):
                     t.cursor_coordinate = (0, 0)
                 finally:
                     self._start_highlight_file = None
+            elif self._highlight_dir_name:
+                try:
+                    target = os.path.join(path, self._highlight_dir_name)
+                    idx = self._row_keys.index(target)
+                    t.cursor_coordinate = (idx, 0)
+                except ValueError:
+                    t.cursor_coordinate = (0, 0)
+                finally:
+                    self._highlight_dir_name = None
             else:
                 t.cursor_coordinate = (0, 0)
         self.logr.debug("load_directory: rows=%s", t.row_count)
@@ -187,6 +204,24 @@ class RepoBrowserApp(App):
         if os.path.abspath(self.current_path) == os.path.abspath(self.repo_path):
             return
         parent = os.path.dirname(self.current_path)
+        # Remember current dir name to highlight in parent view
+        self._highlight_dir_name = os.path.basename(self.current_path)
         self._load_directory(parent)
+
+    # Snap to first/last row actions
+    def action_cursor_home(self) -> None:
+        try:
+            if self.table.row_count:
+                self.table.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+
+    def action_cursor_end(self) -> None:
+        try:
+            rc = self.table.row_count
+            if rc:
+                self.table.cursor_coordinate = (rc - 1, 0)
+        except Exception:
+            pass
 
     # 'o' binding removed; Enter handles both folders and device open
