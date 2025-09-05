@@ -48,15 +48,17 @@ def main(repo_path, device, scroll_to_end, layout, debug):
     if debug:
         os.environ['CONFIG_ANALYZER_DEBUG'] = '1'
         console.print('[dim]Debug logging enabled -> tui_debug.log[/dim]')
-    # If no device specified, launch the repository browser. On selection, return device name and cfg path.
+    # Loop to allow returning to the device browser from snapshot view
     selected_cfg_path = None
-    if not device:
-        browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
-        browser.run()
-        if not getattr(browser, 'selected_device_name', None):
-            return
-        device = browser.selected_device_name
-        selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
+    while True:
+        # If no device specified or user requested back, launch the browser
+        if not device:
+            browser = RepoBrowserApp(repo_path, scroll_to_end=scroll_to_end)
+            browser.run()
+            if not getattr(browser, 'selected_device_name', None):
+                return
+            device = browser.selected_device_name
+            selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
 
     # Resolve device snapshots directory under history (prefer nearest to selected cfg path)
     def _find_device_history(repo_root, dev, cfg_path):
@@ -90,75 +92,82 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             return hits[0]
         return None
 
-    device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
+        device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
     if not device_history_path:
         console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
 
     # Find current device config outside of any 'history' folder
-    current_config_path = None
-    if selected_cfg_path:
-        current_config_path = selected_cfg_path
-    else:
-        for root, dirs, files in os.walk(repo_path):
-            # prune any 'history' directories from traversal
-            dirs[:] = [d for d in dirs if d.lower() != 'history']
-            if f"{device}.cfg" in files:
-                current_config_path = os.path.join(root, f"{device}.cfg")
-                break
+        current_config_path = None
+        if selected_cfg_path:
+            current_config_path = selected_cfg_path
+        else:
+            for root, dirs, files in os.walk(repo_path):
+                # prune any 'history' directories from traversal
+                dirs[:] = [d for d in dirs if d.lower() != 'history']
+                if f"{device}.cfg" in files:
+                    current_config_path = os.path.join(root, f"{device}.cfg")
+                    break
 
     # Collect snapshot files from history
-    config_files = []
-    if device_history_path and os.path.isdir(device_history_path):
-        config_files = sorted([
-            os.path.join(device_history_path, f)
-            for f in os.listdir(device_history_path)
-            if os.path.isfile(os.path.join(device_history_path, f)) and f.lower().endswith('.cfg')
-        ])
+        config_files = []
+        if device_history_path and os.path.isdir(device_history_path):
+            config_files = sorted([
+                os.path.join(device_history_path, f)
+                for f in os.listdir(device_history_path)
+                if os.path.isfile(os.path.join(device_history_path, f)) and f.lower().endswith('.cfg')
+            ])
 
-    if not config_files and not current_config_path:
-        console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
-        return
+        if not config_files and not current_config_path:
+            console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
+            return
 
-    snapshots = []
-    with console.status("[cyan]Parsing configuration snapshots...[/cyan]"):
-        # Include current config if available
-        if current_config_path:
-            current_snapshot = parse_snapshot(current_config_path)
-            if current_snapshot:
-                # Make it visually distinct in the table
-                current_snapshot = current_snapshot._replace(original_filename="Current")
-                snapshots.append(current_snapshot)
+        snapshots = []
+        with console.status("[cyan]Parsing configuration snapshots...[/cyan]"):
+            # Include current config if available
+            if current_config_path:
+                current_snapshot = parse_snapshot(current_config_path)
+                if current_snapshot:
+                    current_snapshot = current_snapshot._replace(original_filename="Current")
+                    snapshots.append(current_snapshot)
 
-        for f in config_files:
-            snapshot = parse_snapshot(f)
-            if snapshot:
-                snapshots.append(snapshot)
+            for f in config_files:
+                snapshot = parse_snapshot(f)
+                if snapshot:
+                    snapshots.append(snapshot)
 
     # Order: Current first (if present), then snapshots by timestamp DESC (most recent on top)
-    current_item = None
-    others = []
-    for s in snapshots:
-        if s.original_filename == "Current" and current_item is None:
-            current_item = s
-        else:
-            others.append(s)
-    others.sort(key=lambda s: s.timestamp, reverse=True)
-    snapshots = ([current_item] if current_item else []) + others
+        current_item = None
+        others = []
+        for s in snapshots:
+            if s.original_filename == "Current" and current_item is None:
+                current_item = s
+            else:
+                others.append(s)
+        others.sort(key=lambda s: s.timestamp, reverse=True)
+        snapshots = ([current_item] if current_item else []) + others
 
     # Warn if fewer than 2, but still launch the UI to allow preview
-    if len(snapshots) < 2:
-        console.print("[bold yellow]Note:[/bold yellow] Fewer than two items available; select two to see a diff when more are present.")
+        if len(snapshots) < 2:
+            console.print("[bold yellow]Note:[/bold yellow] Fewer than two items available; select two to see a diff when more are present.")
 
-    try:
-        app = CommitSelectorApp(
-            snapshots_data=snapshots,
-            scroll_to_end=scroll_to_end,
-            layout=layout,
-        )
-        app.run()
+        try:
+            app = CommitSelectorApp(
+                snapshots_data=snapshots,
+                scroll_to_end=scroll_to_end,
+                layout=layout,
+            )
+            app.run()
 
-    except Exception as e:
-        console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
+        except Exception as e:
+            console.print(f"[bold red]An unexpected error occurred:[/bold red] {e}")
+            return
+
+        # If user requested to go back, reset device to reopen the browser
+        if getattr(app, 'navigate_back', False):
+            device = None
+            selected_cfg_path = None
+            continue
+        break
 
 if __name__ == "__main__":
     main()

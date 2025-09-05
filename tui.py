@@ -50,7 +50,8 @@ class CommitSelectorApp(App):
         Binding("q", "quit", "Quit"),
         Binding("space", "toggle_row", "Toggle Select"),
         Binding("tab", "focus_next", "Switch Panel", show=show_focus_next_key),
-        Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
+        Binding("escape", "hide_diff", "Back / Hide Diff", show=show_hide_diff_key),
+        Binding("backspace", "go_back", "Back to Devices"),
         Binding("d", "toggle_diff_mode", "Toggle Diff View"),
         Binding("l", "toggle_layout", "Toggle Layout"),
         Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
@@ -66,6 +67,7 @@ class CommitSelectorApp(App):
         self.ordered_keys: list[str] = []
         self.diff_mode: str = "unified"
         self.hide_unchanged_sbs: bool = False
+        self.navigate_back: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -199,10 +201,18 @@ class CommitSelectorApp(App):
             pass
 
     def action_hide_diff(self) -> None:
-        self.hide_diff_panel()
-        for key in self.selected_keys:
-            self.table.update_cell(key, "selected_col", "")
-        self.selected_keys.clear()
+        # If diff visible, hide and clear selection; otherwise, go back to repo
+        if self.diff_view.styles.visibility == "visible":
+            self.hide_diff_panel()
+            for key in self.selected_keys:
+                self.table.update_cell(key, "selected_col", "")
+            self.selected_keys.clear()
+        else:
+            self.action_go_back()
+
+    def action_go_back(self) -> None:
+        self.navigate_back = True
+        self.exit()
 
     def action_toggle_row(self) -> None:
         table = self.table
@@ -257,4 +267,3 @@ class CommitSelectorApp(App):
         self.hide_unchanged_sbs = not self.hide_unchanged_sbs
         if self.diff_mode == "side-by-side" and len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
-
