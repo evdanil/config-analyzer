@@ -3,6 +3,7 @@ import click
 from rich.console import Console
 
 from parser import parse_snapshot
+from debug import get_logger
 from tui import CommitSelectorApp
 from repo_browser import RepoBrowserApp
 
@@ -51,9 +52,18 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
+    log = get_logger("main")
     if debug:
         os.environ['CONFIG_ANALYZER_DEBUG'] = '1'
         console.print('[dim]Debug logging enabled -> tui_debug.log[/dim]')
+    log.debug(
+        "start: repo=%s device=%s layout=%s history_dir=%s scroll_to_end=%s",
+        repo_path,
+        device,
+        layout,
+        history_dir,
+        scroll_to_end,
+    )
     # Helper: resolve device snapshots directory under history (prefer nearest to selected cfg path)
     def _find_device_history(repo_root, dev, cfg_path):
         # Prefer nearest 'history/<dev>' relative to the selected cfg directory, walking up to repo root
@@ -111,10 +121,18 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
             device = browser.selected_device_name
             selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
             layout_pref = getattr(browser, 'layout', layout_pref)
+            log.debug(
+                "browser: selected device=%s cfg=%s layout=%s",
+                device,
+                selected_cfg_path,
+                layout_pref,
+            )
 
         device_history_path = _find_device_history(repo_path, device, selected_cfg_path)
         if not device_history_path:
             console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
+        else:
+            log.debug("history_dir=%s", device_history_path)
 
         # Find current device config outside of any 'history' folder
         current_config_path = None
@@ -136,6 +154,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
                 for f in os.listdir(device_history_path)
                 if os.path.isfile(os.path.join(device_history_path, f)) and f.lower().endswith('.cfg')
             ])
+        log.debug("snapshots found=%d current_cfg=%s", len(config_files), bool(selected_cfg_path))
 
         if not config_files and not current_config_path:
             console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
@@ -188,6 +207,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
 
         # Save layout preference, then handle navigation
         layout_pref = getattr(app, 'layout', layout_pref)
+        log.debug("snapshot_view_done: layout=%s navigate_back=%s", layout_pref, getattr(app, 'navigate_back', False))
         # If user requested to go back, reset device to reopen the browser
         if getattr(app, 'navigate_back', False):
             # Reopen browser at the directory of current config if available

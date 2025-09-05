@@ -3,6 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional, NamedTuple, Tuple
 from dateutil.parser import parse as date_parse
+from debug import get_logger
 
 # Using a NamedTuple for a lightweight, immutable data structure.
 class Snapshot(NamedTuple):
@@ -20,11 +21,14 @@ _DATE_HEADER_RE = re.compile(r"^(?:[#;!%\s]*)(?:Last\s*Updated|Updated|Date|Time
 _FILENAME_DATE_RE = re.compile(r"(\d{4}[-_]?\d{2}[-_]?\d{2}[ T_]?\d{2}[:-]?\d{2}(?:[:-]?\d{2})?)")
 _FILENAME_USER_RE = re.compile(r"(?:user[-_])([A-Za-z0-9._-]+)|(?:^|__)by[-_]?([A-Za-z0-9._-]+)", re.IGNORECASE)
 
+_log = get_logger("parser")
+
 def _safe_read(path: str) -> Optional[str]:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:
+        _log.debug("safe_read: failed to read %s", path)
         return None
 
 def _extract_metadata_from_text(text: str) -> Tuple[Optional[str], Optional[datetime]]:
@@ -78,8 +82,10 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
     - Falls back to file mtime for timestamp and "unknown" for author.
     - Always returns a Snapshot if the file is readable.
     """
+    _log.debug("parse_snapshot: start path=%s", file_path)
     full_content = _safe_read(file_path)
     if full_content is None:
+        _log.debug("parse_snapshot: unreadable %s", file_path)
         return None
 
     # Heuristic metadata extraction
@@ -99,6 +105,7 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
             ts = datetime.now(timezone.utc)
     if author is None:
         author = "unknown"
+    _log.debug("parse_snapshot: meta author=%s ts=%s", author, ts)
 
     # Normalize to timezone-aware UTC for consistent comparisons
     if ts.tzinfo is None or (ts.tzinfo and ts.tzinfo.utcoffset(ts) is None):
@@ -120,6 +127,7 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
 
     content_body = "\n".join(lines[body_start_index:])
     original_filename = os.path.basename(file_path)
+    _log.debug("parse_snapshot: body_start=%d file=%s", body_start_index, original_filename)
 
     return Snapshot(
         path=file_path,

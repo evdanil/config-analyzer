@@ -4,11 +4,13 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich import box
+from debug import get_logger
 
 # Use a forward reference to avoid circular import
 if TYPE_CHECKING:
     from parser import Snapshot
 
+_log = get_logger("diff")
 def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:
     """
     Generates a unified diff between the content of two snapshots and wraps it
@@ -33,6 +35,14 @@ def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:
     )
 
     diff_text = "".join(diff_lines)
+    _log.debug(
+        "get_diff: %s vs %s, len1=%d len2=%d diff_chars=%d",
+        snapshot1.original_filename,
+        snapshot2.original_filename,
+        len(lines1),
+        len(lines2),
+        len(diff_text),
+    )
     return Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
     
 def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot", hide_unchanged: bool = False) -> Table:
@@ -49,6 +59,14 @@ def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot", hide_unc
     right_lines: List[str] = snapshot2.content_body.splitlines()
 
     sm = difflib.SequenceMatcher(None, left_lines, right_lines, autojunk=False)
+    _log.debug(
+        "get_diff_sbs: %s vs %s, hide_unchanged=%s, len1=%d len2=%d",
+        snapshot1.original_filename,
+        snapshot2.original_filename,
+        hide_unchanged,
+        len(left_lines),
+        len(right_lines),
+    )
 
     table = Table(
         show_header=True,
