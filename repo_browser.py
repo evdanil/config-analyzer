@@ -7,6 +7,7 @@ from textual.containers import Horizontal
 from textual.binding import Binding
 
 from parser import parse_snapshot, Snapshot
+from debug import get_logger
 
 
 class RepoBrowserApp(App):
@@ -37,6 +38,7 @@ class RepoBrowserApp(App):
 
     def __init__(self, repo_path: str, scroll_to_end: bool = False):
         super().__init__()
+        self.logr = get_logger("browser")
         self.repo_path = os.path.abspath(repo_path)
         self.current_path = self.repo_path
         self.selected_device_name: Optional[str] = None
@@ -53,6 +55,7 @@ class RepoBrowserApp(App):
     def on_mount(self) -> None:
         self._setup_table()
         self._load_directory(self.current_path)
+        self.logr.debug("mounted at %s", self.current_path)
         self.table.focus()
 
     def _setup_table(self) -> None:
@@ -66,6 +69,7 @@ class RepoBrowserApp(App):
         self._row_keys: List[str] = []
 
     def _load_directory(self, path: str) -> None:
+        self.logr.debug("load_directory: %s", path)
         self.current_path = path
         t = self.table
         # Clear and rebuild columns to avoid clear(rows=...) incompatibility
@@ -112,6 +116,7 @@ class RepoBrowserApp(App):
         # Move cursor to first row if available
         if t.row_count:
             t.cursor_coordinate = (0, 0)
+        self.logr.debug("load_directory: rows=%s", t.row_count)
 
     def _selected_row_key(self) -> Optional[str]:
         row = self.table.cursor_row
@@ -122,6 +127,7 @@ class RepoBrowserApp(App):
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:  # type: ignore
         # Update preview when selection changes
         key = self._selected_row_key()
+        self.logr.debug("row_highlighted: %s", key)
         if not key:
             return
         # If device, preview content; if folder, show hint
@@ -142,6 +148,7 @@ class RepoBrowserApp(App):
 
     def action_enter_selected(self) -> None:
         key = self._selected_row_key()
+        self.logr.debug("enter_selected: %s", key)
         if not key:
             return
         if key == "..":
@@ -165,6 +172,7 @@ class RepoBrowserApp(App):
 
     def action_open_history(self) -> None:
         key = self._selected_row_key()
+        self.logr.debug("open_history: %s", key)
         if not key or os.path.isdir(key):
             return
         # Extract device name from filename

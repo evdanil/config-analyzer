@@ -4,6 +4,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
 from parser import Snapshot
+from debug import get_logger
 from differ import get_diff, get_diff_side_by_side
 from rich.text import Text
 
@@ -55,6 +56,7 @@ class CommitSelectorApp(App):
 
     def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = "right"):
         super().__init__()
+        self.logr = get_logger("tui")
         self.snapshots_data = snapshots_data
         self.scroll_to_end = scroll_to_end
         self.layout = layout
@@ -76,22 +78,28 @@ class CommitSelectorApp(App):
 
     def on_mount(self) -> None:
         # Build initial layout, then populate the table
+        self.logr.debug("on_mount: building layout=%s", self.layout)
         self._apply_layout()
         self.setup_table()
-        self.table.focus()
+        try:
+            self.table.focus()
+            self.logr.debug("on_mount: focused table; rows=%s", getattr(self.table, 'row_count', 'n/a'))
+        except Exception as e:
+            self.logr.exception("on_mount: table.focus failed: %s", e)
 
     def _apply_layout(self) -> None:
+        self.logr.debug("apply_layout: start layout=%s", self.layout)
         # Ensure widgets are detached from any parent
         try:
             if self.table_container.parent is not None:
                 self.table_container.remove()
         except Exception:
-            pass
+            self.logr.debug("apply_layout: table_container.remove() ignored")
         try:
             if self.diff_view.parent is not None:
                 self.diff_view.remove()
         except Exception:
-            pass
+            self.logr.debug("apply_layout: diff_view.remove() ignored")
 
         # Clear any previous orientation container
         main = self.main_panel
@@ -109,8 +117,19 @@ class CommitSelectorApp(App):
             ordered = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
             container = Vertical(*ordered, classes=f"layout-{self.layout}")
         main.mount(container)
+        try:
+            self.logr.debug(
+                "apply_layout: mounted %s children=%d (table_parent=%s, diff_parent=%s)",
+                type(container).__name__,
+                len(list(container.children)),
+                type(self.table_container.parent).__name__ if self.table_container.parent else None,
+                type(self.diff_view.parent).__name__ if self.diff_view.parent else None,
+            )
+        except Exception:
+            self.logr.debug("apply_layout: post-mount logging skipped")
 
     def setup_table(self) -> None:
+        self.logr.debug("setup_table: %d snapshots", len(self.snapshots_data))
         table = self.table
         table.cursor_type = "row"
         table.add_column("Sel", key="selected_col", width=3)
@@ -127,7 +146,11 @@ class CommitSelectorApp(App):
                 snapshot.author,
                 key=key,
             )
-        table.focus()
+        self.logr.debug("setup_table: rows=%s", getattr(table, 'row_count', 'n/a'))
+        try:
+            table.focus()
+        except Exception:
+            self.logr.debug("setup_table: table.focus ignored")
 
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
@@ -145,19 +168,27 @@ class CommitSelectorApp(App):
         else:
             renderable = get_diff(snapshot1, snapshot2)
 
+        self.logr.debug("show_diff: mode=%s", self.diff_mode)
         diff_view = self.diff_view
         diff_view.clear()
         diff_view.write(renderable)
         diff_view.styles.visibility = "visible"
         diff_view.can_focus = True
-        diff_view.focus()
+        try:
+            diff_view.focus()
+        except Exception:
+            self.logr.debug("show_diff: diff_view.focus ignored")
 
     def hide_diff_panel(self) -> None:
+        self.logr.debug("hide_diff_panel: hide diff and focus table")
         self.diff_view.styles.visibility = "hidden"
         self.diff_view.can_focus = False
         self.show_hide_diff_key = False
         self.show_focus_next_key = False
-        self.table.focus()
+        try:
+            self.table.focus()
+        except Exception:
+            self.logr.debug("hide_diff_panel: table.focus ignored")
 
     def action_hide_diff(self) -> None:
         self.hide_diff_panel()
@@ -169,10 +200,12 @@ class CommitSelectorApp(App):
     def action_toggle_row(self) -> None:
         table = self.table
         if not table.has_focus:
+            self.logr.debug("toggle_row: table not focused; ignoring")
             return
         try:
             row_key = self.ordered_keys[table.cursor_row]
         except IndexError:
+            self.logr.debug("toggle_row: cursor out of range")
             return
         if row_key in self.selected_keys:
             self.selected_keys.remove(row_key)
@@ -183,6 +216,7 @@ class CommitSelectorApp(App):
                 table.update_cell(oldest_key, "selected_col", "")
             self.selected_keys.append(row_key)
             table.update_cell(row_key, "selected_col", Text("x", style="green"))
+        self.logr.debug("toggle_row: selected_keys=%s", self.selected_keys)
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:
@@ -190,6 +224,7 @@ class CommitSelectorApp(App):
 
     def action_toggle_diff_mode(self) -> None:
         self.diff_mode = "side-by-side" if self.diff_mode == "unified" else "unified"
+        self.logr.debug("toggle_diff_mode: now %s", self.diff_mode)
         # If two selected and diff visible, re-render
         if len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
@@ -201,13 +236,17 @@ class CommitSelectorApp(App):
             idx = order.index(self.layout)
         except ValueError:
             idx = 0
+        old = self.layout
         self.layout = order[(idx + 1) % len(order)]
+        self.logr.debug("toggle_layout: %s -> %s", old, self.layout)
         self._apply_layout()
         # Keep focus sensible
         if self.show_hide_diff_key:
             self.diff_view.focus()
         else:
             self.table.focus()
+
+
 
 
 

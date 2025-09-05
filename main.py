@@ -26,7 +26,6 @@ from repo_browser import RepoBrowserApp
     help="Automatically scroll to the end of the diff view on load.",
     show_default=True,
 )
-# --- CHANGE: Add a new command-line option for the layout ---
 @click.option(
     '--layout',
     type=click.Choice(['right', 'left', 'bottom', 'top'], case_sensitive=False),
@@ -34,11 +33,21 @@ from repo_browser import RepoBrowserApp
     help="Position of the diff panel relative to the commit list.",
     show_default=True,
 )
-def main(repo_path, device, scroll_to_end, layout):
+@click.option(
+    '--debug',
+    is_flag=True,
+    default=False,
+    help='Enable verbose debug logging to tui_debug.log',
+    show_default=True,
+)
+def main(repo_path, device, scroll_to_end, layout, debug):
     """
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
+    if debug:
+        os.environ['CONFIG_ANALYZER_DEBUG'] = '1'
+        console.print('[dim]Debug logging enabled -> tui_debug.log[/dim]')
     # If no device specified, launch the repository browser. On selection, return device name and cfg path.
     selected_cfg_path = None
     if not device:
