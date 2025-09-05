@@ -35,7 +35,7 @@ def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:
     diff_text = "".join(diff_lines)
     return Syntax(diff_text, "diff", line_numbers=True, word_wrap=True)
     
-def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Table:
+def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot", hide_unchanged: bool = False) -> Table:
     """
     Generates a side-by-side diff table between two snapshots.
 
@@ -64,6 +64,8 @@ def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Table
 
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
+            if hide_unchanged:
+                continue
             for a, b in zip(left_lines[i1:i2], right_lines[j1:j2]):
                 table.add_row(Text(a), Text(b))
         elif tag == "replace":

@@ -3,6 +3,7 @@ from textual.widgets import Header, Footer, DataTable, RichLog
 from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
+
 from parser import Snapshot
 from debug import get_logger
 from differ import get_diff, get_diff_side_by_side
@@ -52,6 +53,7 @@ class CommitSelectorApp(App):
         Binding("escape", "hide_diff", "Back to List", show=show_hide_diff_key),
         Binding("d", "toggle_diff_mode", "Toggle Diff View"),
         Binding("l", "toggle_layout", "Toggle Layout"),
+        Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
     ]
 
     def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = "right"):
@@ -63,85 +65,87 @@ class CommitSelectorApp(App):
         self.selected_keys: list[str] = []
         self.ordered_keys: list[str] = []
         self.diff_mode: str = "unified"
+        self.hide_unchanged_sbs: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
-        # Persistent widgets
-        self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)  # type: ignore[attr-defined]
+        # Placeholders; actual layout is mounted in _apply_layout
+        self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
         self.diff_view.can_focus = False
-        self.table = SelectionDataTable(id="commit_table")  # type: ignore[attr-defined]
-        self.table_container = Container(self.table, id="table-container")  # type: ignore[attr-defined]
-        # Main holder; orientation container will be mounted here
-        self.main_panel = Container(id="main-panel")  # type: ignore[attr-defined]
+        self.table = SelectionDataTable(id="commit_table")
+        self.table_container = Container(self.table, id="table-container")
+        self.main_panel = Container(id="main-panel")
         yield self.main_panel
         yield Footer()
 
     def on_mount(self) -> None:
-        # Build initial layout; _apply_layout() will populate the table
-        self.logr.debug("on_mount: building layout=%s", self.layout)
+        self.logr.debug("on_mount: layout=%s", self.layout)
         self._apply_layout()
-        # Focus after the first refresh to avoid any focus stealing
+
         def _focus_table() -> None:
             try:
                 self.table.focus()
-                self.logr.debug("on_mount: focused table (post-refresh); rows=%s", getattr(self.table, 'row_count', 'n/a'))
+                self.logr.debug("on_mount: focused table; rows=%s", getattr(self.table, 'row_count', 'n/a'))
             except Exception as e:
                 self.logr.exception("on_mount: table.focus failed: %s", e)
-        try:
-            self.call_after_refresh(_focus_table)
-        except Exception:
-            _focus_table()
-        def _focus_table() -> None:
-            try:
-                self.table.focus()
-                self.logr.debug("on_mount: focused table (post-refresh); rows=%s", getattr(self.table, 'row_count', 'n/a'))
-            except Exception as e:
-                self.logr.exception("on_mount: table.focus failed: %s", e)
+
         try:
             self.call_after_refresh(_focus_table)
         except Exception:
             _focus_table()
 
     def _apply_layout(self) -> None:
-        """Rebuild the UI fresh to avoid reparent timing issues."""
-        self.logr.debug("apply_layout: start layout=%s (rebuild)", self.layout)
-        main = self.main_panel
+        """Rebuild widgets to avoid reparent timing issues on Textual 0.61."""
+        self.logr.debug("apply_layout: rebuild layout=%s", self.layout)
+        # Clear container
         try:
-            for child in list(main.children):
+            for child in list(self.main_panel.children):
                 child.remove()
         except Exception:
-            self.logr.debug("apply_layout: clearing main children ignored")
+            pass
+
+        # Fresh widgets each time
         self.diff_view = DiffViewLog(id="diff_view", auto_scroll=self.scroll_to_end, wrap=True, highlight=True)
-        self.diff_view.styles.visibility = "visible" if self.show_hide_diff_key else "hidden"
-        self.diff_view.can_focus = bool(self.show_hide_diff_key)
+        if not self.show_hide_diff_key:
+            self.diff_view.styles.visibility = "hidden"
+            self.diff_view.can_focus = False
+        else:
+            self.diff_view.styles.visibility = "visible"
+            self.diff_view.can_focus = True
+
         self.table = SelectionDataTable(id="commit_table")
         self.table_container = Container(self.table, id="table-container")
+
+        # Orientation
         if self.layout in ("right", "left"):
             ordered = (self.diff_view, self.table_container) if self.layout == "left" else (self.table_container, self.diff_view)
             container = Horizontal(*ordered, classes=f"layout-{self.layout}")
         else:
             ordered = (self.diff_view, self.table_container) if self.layout == "top" else (self.table_container, self.diff_view)
             container = Vertical(*ordered, classes=f"layout-{self.layout}")
-        main.mount(container)
+        self.main_panel.mount(container)
+
+        # Populate table and reapply state
         self.setup_table()
-        try:
-            for key in self.selected_keys:
+        for key in self.selected_keys:
+            try:
                 self.table.update_cell(key, "selected_col", Text("x", style="green"))
-        except Exception as e:
-            self.logr.debug("apply_layout: reapply selections error: %s", e)
+            except Exception:
+                pass
+
         if self.show_hide_diff_key and len(self.selected_keys) == 2:
             self.show_diff()
+
+        # Keep focus on table always; user can Tab to diff
         try:
-            if self.show_hide_diff_key:
-                self.diff_view.focus()
-            else:
-                self.table.focus()
+            self.table.focus()
         except Exception:
-            self.logr.debug("apply_layout: focus restore ignored")
+            pass
+
     def setup_table(self) -> None:
         self.logr.debug("setup_table: %d snapshots", len(self.snapshots_data))
         table = self.table
-        # Ensure we start with a clean model for rebuilds
+        # Clean model to avoid duplicate columns
         try:
             table.clear()
         except Exception:
@@ -151,10 +155,9 @@ class CommitSelectorApp(App):
         table.add_column("Name", key="name_col")
         table.add_column("Date", key="date_col")
         table.add_column("Author", key="author_col")
-        # Rebuild ordered_keys to match current rows
         self.ordered_keys = []
         for snapshot in self.snapshots_data:
-            key = snapshot.path  # Use full path as unique key
+            key = snapshot.path
             self.ordered_keys.append(key)
             table.add_row(
                 "",
@@ -163,11 +166,7 @@ class CommitSelectorApp(App):
                 snapshot.author,
                 key=key,
             )
-        self.logr.debug("setup_table: rows=%s", getattr(table, 'row_count', 'n/a'))
-        try:
-            table.focus()
-        except Exception:
-            self.logr.debug("setup_table: table.focus ignored")
+
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
         self.show_focus_next_key = True
@@ -175,28 +174,21 @@ class CommitSelectorApp(App):
         path1, path2 = self.selected_keys
         snapshot1 = next(s for s in self.snapshots_data if s.path == path1)
         snapshot2 = next(s for s in self.snapshots_data if s.path == path2)
-
         if snapshot1.timestamp > snapshot2.timestamp:
             snapshot1, snapshot2 = snapshot2, snapshot1
 
         if self.diff_mode == "side-by-side":
-            renderable = get_diff_side_by_side(snapshot1, snapshot2)
+            renderable = get_diff_side_by_side(snapshot1, snapshot2, hide_unchanged=self.hide_unchanged_sbs)
         else:
             renderable = get_diff(snapshot1, snapshot2)
 
-        self.logr.debug("show_diff: mode=%s", self.diff_mode)
-        diff_view = self.diff_view
-        diff_view.clear()
-        diff_view.write(renderable)
-        diff_view.styles.visibility = "visible"
-        diff_view.can_focus = True
-        try:
-            diff_view.focus()
-        except Exception:
-            self.logr.debug("show_diff: diff_view.focus ignored")
+        self.diff_view.clear()
+        self.diff_view.write(renderable)
+        self.diff_view.styles.visibility = "visible"
+        self.diff_view.can_focus = True  # allow Tab focus, but don't take focus now
 
     def hide_diff_panel(self) -> None:
-        self.logr.debug("hide_diff_panel: hide diff and focus table")
+        self.logr.debug("hide_diff_panel")
         self.diff_view.styles.visibility = "hidden"
         self.diff_view.can_focus = False
         self.show_hide_diff_key = False
@@ -204,13 +196,12 @@ class CommitSelectorApp(App):
         try:
             self.table.focus()
         except Exception:
-            self.logr.debug("hide_diff_panel: table.focus ignored")
+            pass
 
     def action_hide_diff(self) -> None:
         self.hide_diff_panel()
-        table = self.table
         for key in self.selected_keys:
-            table.update_cell(key, "selected_col", "")
+            self.table.update_cell(key, "selected_col", "")
         self.selected_keys.clear()
 
     def action_toggle_row(self) -> None:
@@ -232,7 +223,6 @@ class CommitSelectorApp(App):
                 table.update_cell(oldest_key, "selected_col", "")
             self.selected_keys.append(row_key)
             table.update_cell(row_key, "selected_col", Text("x", style="green"))
-        self.logr.debug("toggle_row: selected_keys=%s", self.selected_keys)
         if len(self.selected_keys) == 2:
             self.show_diff()
         else:
@@ -240,54 +230,31 @@ class CommitSelectorApp(App):
 
     def action_toggle_diff_mode(self) -> None:
         self.diff_mode = "side-by-side" if self.diff_mode == "unified" else "unified"
-        self.logr.debug("toggle_diff_mode: now %s", self.diff_mode)
-        # If two selected and diff visible, re-render
         if len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
             self.show_diff()
 
     def action_toggle_layout(self) -> None:
-        # Cycle layout order: right -> bottom -> left -> top -> right
         order = ["right", "bottom", "left", "top"]
         try:
             idx = order.index(self.layout)
         except ValueError:
             idx = 0
-        old = self.layout
         self.layout = order[(idx + 1) % len(order)]
-        self.logr.debug("toggle_layout: %s -> %s", old, self.layout)
-        # Detach current parents, then remount after the next refresh tick
-        try:
-            if self.table_container.parent is not None:
-                self.table_container.remove()
-        except Exception:
-            self.logr.debug("toggle_layout: table_container.remove ignored")
-        try:
-            if self.diff_view.parent is not None:
-                self.diff_view.remove()
-        except Exception:
-            self.logr.debug("toggle_layout: diff_view.remove ignored")
 
         def _remount() -> None:
-            self.logr.debug("toggle_layout: remount phase (layout=%s)", self.layout)
             self._apply_layout()
-            # Keep focus sensible
             try:
-                if self.show_hide_diff_key:
-                    self.diff_view.focus()
-                else:
-                    self.table.focus()
+                self.table.focus()
             except Exception:
-                self.logr.debug("toggle_layout: focus restore ignored")
+                pass
 
         try:
             self.call_after_refresh(_remount)
         except Exception:
             _remount()
 
-
-
-
-
-
-
+    def action_toggle_hide_unchanged(self) -> None:
+        self.hide_unchanged_sbs = not self.hide_unchanged_sbs
+        if self.diff_mode == "side-by-side" and len(self.selected_keys) == 2 and self.diff_view.styles.visibility == "visible":
+            self.show_diff()
 

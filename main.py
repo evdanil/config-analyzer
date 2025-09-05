@@ -126,7 +126,7 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             current_snapshot = parse_snapshot(current_config_path)
             if current_snapshot:
                 # Make it visually distinct in the table
-                current_snapshot = current_snapshot._replace(original_filename=f"Current ({os.path.basename(current_config_path)})")
+                current_snapshot = current_snapshot._replace(original_filename="Current")
                 snapshots.append(current_snapshot)
 
         for f in config_files:
@@ -134,8 +134,16 @@ def main(repo_path, device, scroll_to_end, layout, debug):
             if snapshot:
                 snapshots.append(snapshot)
 
-    # Sort chronologically
-    snapshots.sort(key=lambda s: s.timestamp)
+    # Order: Current first (if present), then snapshots by timestamp DESC (most recent on top)
+    current_item = None
+    others = []
+    for s in snapshots:
+        if s.original_filename == "Current" and current_item is None:
+            current_item = s
+        else:
+            others.append(s)
+    others.sort(key=lambda s: s.timestamp, reverse=True)
+    snapshots = ([current_item] if current_item else []) + others
 
     # Warn if fewer than 2, but still launch the UI to allow preview
     if len(snapshots) < 2:
