@@ -81,11 +81,17 @@ class CommitSelectorApp(App):
         self.logr.debug("on_mount: building layout=%s", self.layout)
         self._apply_layout()
         self.setup_table()
+        # Focus after the first refresh to avoid any focus stealing
+        def _focus_table() -> None:
+            try:
+                self.table.focus()
+                self.logr.debug("on_mount: focused table (post-refresh); rows=%s", getattr(self.table, 'row_count', 'n/a'))
+            except Exception as e:
+                self.logr.exception("on_mount: table.focus failed: %s", e)
         try:
-            self.table.focus()
-            self.logr.debug("on_mount: focused table; rows=%s", getattr(self.table, 'row_count', 'n/a'))
-        except Exception as e:
-            self.logr.exception("on_mount: table.focus failed: %s", e)
+            self.call_after_refresh(_focus_table)
+        except Exception:
+            _focus_table()
 
     def _apply_layout(self) -> None:
         self.logr.debug("apply_layout: start layout=%s", self.layout)
@@ -239,12 +245,34 @@ class CommitSelectorApp(App):
         old = self.layout
         self.layout = order[(idx + 1) % len(order)]
         self.logr.debug("toggle_layout: %s -> %s", old, self.layout)
-        self._apply_layout()
-        # Keep focus sensible
-        if self.show_hide_diff_key:
-            self.diff_view.focus()
-        else:
-            self.table.focus()
+        # Detach current parents, then remount after the next refresh tick
+        try:
+            if self.table_container.parent is not None:
+                self.table_container.remove()
+        except Exception:
+            self.logr.debug("toggle_layout: table_container.remove ignored")
+        try:
+            if self.diff_view.parent is not None:
+                self.diff_view.remove()
+        except Exception:
+            self.logr.debug("toggle_layout: diff_view.remove ignored")
+
+        def _remount() -> None:
+            self.logr.debug("toggle_layout: remount phase (layout=%s)", self.layout)
+            self._apply_layout()
+            # Keep focus sensible
+            try:
+                if self.show_hide_diff_key:
+                    self.diff_view.focus()
+                else:
+                    self.table.focus()
+            except Exception:
+                self.logr.debug("toggle_layout: focus restore ignored")
+
+        try:
+            self.call_after_refresh(_remount)
+        except Exception:
+            _remount()
 
 
 
