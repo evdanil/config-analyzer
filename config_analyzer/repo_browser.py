@@ -88,6 +88,7 @@ class RepoBrowserApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        # Placeholders; actual widgets are built in _apply_layout
         self.table = BrowserDataTable(id="left")
         self.table.cursor_type = "row"
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
@@ -116,21 +117,33 @@ class RepoBrowserApp(App):
             _focus_table()
 
     def _apply_layout(self) -> None:
-        # Clear and mount orientation container
+        """Rebuild widgets and mount according to current layout.
+
+        Recreating widgets avoids Textual reparenting quirks that can drop
+        content render state when switching containers immediately after start.
+        """
         try:
             for child in list(self.main_panel.children):
                 child.remove()
         except Exception:
             pass
-        if not hasattr(self, 'layout'):
-            self.layout = 'right'
-        if self.layout in ('right', 'left'):
-            ordered = (self.preview, self.table) if self.layout == 'left' else (self.table, self.preview)
+
+        # Fresh widgets each time
+        self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
+        self.table = BrowserDataTable(id="left")
+        self.table.cursor_type = "row"
+
+        # Orientation
+        if self.layout in ("right", "left"):
+            ordered = (self.preview, self.table) if self.layout == "left" else (self.table, self.preview)
             container = Horizontal(*ordered, classes=f"layout-{self.layout}")
         else:
-            ordered = (self.preview, self.table) if self.layout == 'top' else (self.table, self.preview)
+            ordered = (self.preview, self.table) if self.layout == "top" else (self.table, self.preview)
             container = Vertical(*ordered, classes=f"layout-{self.layout}")
         self.main_panel.mount(container)
+
+        # Columns for the fresh table
+        self._setup_table()
 
     def _setup_table(self) -> None:
         t = self.table
@@ -208,7 +221,36 @@ class RepoBrowserApp(App):
                     self._highlight_dir_name = None
             else:
                 t.cursor_coordinate = (0, 0)
+        # Ensure preview reflects the current selection immediately
+        key = self._selected_row_key()
+        if key:
+            self._update_preview(key)
         self.logr.debug("load_directory: rows=%s", t.row_count)
+
+    def _update_preview(self, key: str) -> None:
+        """Populate the right pane for a given key (file or directory)."""
+        # If device, preview content; if folder, show hint
+        if key == ".." or os.path.isdir(key):
+            self.preview.clear()
+            self.preview.write(f"Path: {self.current_path}\nEnter to navigate. Press Q to quit.")
+            return
+        snap = parse_snapshot(key)
+        self.preview.clear()
+        if snap:
+            try:
+                self.preview.write(Syntax(snap.content_body, "ini", word_wrap=True))
+            except Exception:
+                self.preview.write(snap.content_body)
+            return
+        try:
+            with open(key, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+                try:
+                    self.preview.write(Syntax(content, "ini", word_wrap=True))
+                except Exception:
+                    self.preview.write(content)
+        except OSError as e:
+            self.preview.write(f"[red]Error reading file:[/red] {e}")
 
     def _selected_row_key(self) -> Optional[str]:
         row = self.table.cursor_row
@@ -222,28 +264,7 @@ class RepoBrowserApp(App):
         self.logr.debug("row_highlighted: %s", key)
         if not key:
             return
-        # If device, preview content; if folder, show hint
-        if key == ".." or os.path.isdir(key):
-            self.preview.clear()
-            self.preview.write(f"Path: {self.current_path}\nEnter to navigate. Press Q to quit.")
-        else:
-            snap = parse_snapshot(key)
-            self.preview.clear()
-            if snap:
-                try:
-                    self.preview.write(Syntax(snap.content_body, "ini", word_wrap=True))
-                except Exception:
-                    self.preview.write(snap.content_body)
-            else:
-                try:
-                    with open(key, "r", encoding="utf-8", errors="replace") as f:
-                        content = f.read()
-                        try:
-                            self.preview.write(Syntax(content, "ini", word_wrap=True))
-                        except Exception:
-                            self.preview.write(content)
-                except OSError as e:
-                    self.preview.write(f"[red]Error reading file:[/red] {e}")
+        self._update_preview(key)
 
     def action_enter_selected(self) -> None:
         key = self._selected_row_key()
@@ -299,8 +320,20 @@ class RepoBrowserApp(App):
             idx = 0
         self.layout = order[(idx + 1) % len(order)]
 
+        # Remember current selection to restore after rebuild
+        saved_key = self._selected_row_key()
+
         def _remount() -> None:
+            # Rebuild widgets, then reload directory and restore selection
             self._apply_layout()
+            self._load_directory(self.current_path)
+            if saved_key and saved_key in getattr(self, '_row_keys', []):
+                try:
+                    i = self._row_keys.index(saved_key)
+                    self.table.cursor_coordinate = (i, 0)
+                    self._update_preview(saved_key)
+                except Exception:
+                    pass
             try:
                 self.table.focus()
             except Exception:
