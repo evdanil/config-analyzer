@@ -4,11 +4,11 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich import box
-from debug import get_logger
+from .debug import get_logger
 
 # Use a forward reference to avoid circular import
 if TYPE_CHECKING:
-    from parser import Snapshot
+    from .parser import Snapshot
 
 _log = get_logger("diff")
 def get_diff(snapshot1: "Snapshot", snapshot2: "Snapshot") -> Syntax:

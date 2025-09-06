@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "config-analyzer"
+dynamic = ["version", "dependencies"]
+description = "Interactive TUI to browse device configs and diff snapshots"
+requires-python = ">=3.8"
+authors = [
+  { name = "Config Analyzer" }
+]
+license = { text = "Proprietary" }
+keywords = ["config", "diff", "textual", "tui"]
+
+[tool.setuptools.dynamic]
+version = { attr = "config_analyzer.version.__version__" }
+dependencies = { file = ["requirements.txt"] }
+
+[project.scripts]
+config-analyzer = "config_analyzer.cli:main"

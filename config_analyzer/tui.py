@@ -4,10 +4,10 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
 
-from parser import Snapshot
-from debug import get_logger
-from version import __version__
-from differ import get_diff, get_diff_side_by_side
+from .parser import Snapshot
+from .debug import get_logger
+from .version import __version__
+from .differ import get_diff, get_diff_side_by_side
 from rich.text import Text
 from rich.syntax import Syntax
 

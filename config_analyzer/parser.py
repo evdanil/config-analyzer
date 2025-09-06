@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional, NamedTuple, Tuple
 from dateutil.parser import parse as date_parse
-from debug import get_logger
+from .debug import get_logger
 
 # Using a NamedTuple for a lightweight, immutable data structure.
 class Snapshot(NamedTuple):

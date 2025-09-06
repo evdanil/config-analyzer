@@ -2,10 +2,10 @@ import os
 import click
 from rich.console import Console
 
-from parser import parse_snapshot
-from debug import get_logger
-from tui import CommitSelectorApp
-from repo_browser import RepoBrowserApp
+from .parser import parse_snapshot
+from .debug import get_logger
+from .tui import CommitSelectorApp
+from .repo_browser import RepoBrowserApp
 
 @click.command()
 @click.option(
