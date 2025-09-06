@@ -47,8 +47,16 @@ class RepoBrowserApp(App):
 
     CSS = """
     #left { width: 48%; }
-    #right { width: 52%; border-left: solid steelblue; }
-    #right:focus-within { border-left: thick yellow; }
+    #right { width: 52%; }
+
+    .layout-right #right { border-left: solid steelblue; }
+    .layout-right #right:focus-within { border-left: thick yellow; }
+    .layout-left #right { border-right: solid steelblue; }
+    .layout-left #right:focus-within { border-right: thick yellow; }
+    .layout-bottom #right { border-top: solid steelblue; }
+    .layout-bottom #right:focus-within { border-top: thick yellow; }
+    .layout-top #right { border-bottom: solid steelblue; }
+    .layout-top #right:focus-within { border-bottom: thick yellow; }
     """
 
     BINDINGS = [
@@ -96,10 +104,25 @@ class RepoBrowserApp(App):
         self._apply_layout()
         self._load_directory(self.current_path)
         self.logr.debug("mounted at %s", self.current_path)
-        self.table.focus()
+
+        def _focus_table() -> None:
+            try:
+                self.table.focus()
+            except Exception:
+                pass
+
+        try:
+            self.call_after_refresh(_focus_table)
+        except Exception:
+            _focus_table()
 
     def _apply_layout(self) -> None:
-        # Clear and mount orientation container
+        """Rebuild widgets and mount with orientation-specific class.
+
+        Recreating widgets avoids reparenting glitches that can clear content
+        immediately after startup when toggling layout.
+        """
+        # Clear previous container
         try:
             for child in list(self.main_panel.children):
                 child.remove()
@@ -107,13 +130,23 @@ class RepoBrowserApp(App):
             pass
         if not hasattr(self, 'layout'):
             self.layout = 'right'
+
+        # Fresh widgets
+        self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
+        self.table = BrowserDataTable(id="left")
+        self.table.cursor_type = "row"
+
+        # Orientation container with class for CSS borders
         if self.layout in ('right', 'left'):
             ordered = (self.preview, self.table) if self.layout == 'left' else (self.table, self.preview)
-            container = Horizontal(*ordered)
+            container = Horizontal(*ordered, classes=f"layout-{self.layout}")
         else:
             ordered = (self.preview, self.table) if self.layout == 'top' else (self.table, self.preview)
-            container = Container(Vertical(*ordered))
+            container = Vertical(*ordered, classes=f"layout-{self.layout}")
         self.main_panel.mount(container)
+
+        # Prepare columns on the fresh table
+        self._setup_table()
 
     def _setup_table(self) -> None:
         t = self.table
@@ -191,7 +224,35 @@ class RepoBrowserApp(App):
                     self._highlight_dir_name = None
             else:
                 t.cursor_coordinate = (0, 0)
+        # Ensure preview reflects current selection immediately
+        key = self._selected_row_key()
+        if key:
+            self._update_preview(key)
         self.logr.debug("load_directory: rows=%s", t.row_count)
+
+    def _update_preview(self, key: str) -> None:
+        """Populate preview for a key (file or directory)."""
+        if key == ".." or os.path.isdir(key):
+            self.preview.clear()
+            self.preview.write(f"Path: {self.current_path}\nEnter to navigate. Press Q to quit.")
+            return
+        snap = parse_snapshot(key)
+        self.preview.clear()
+        if snap:
+            try:
+                self.preview.write(Syntax(snap.content_body, "ini", word_wrap=True))
+            except Exception:
+                self.preview.write(snap.content_body)
+            return
+        try:
+            with open(key, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+                try:
+                    self.preview.write(Syntax(content, "ini", word_wrap=True))
+                except Exception:
+                    self.preview.write(content)
+        except OSError as e:
+            self.preview.write(f"[red]Error reading file:[/red] {e}")
 
     def _selected_row_key(self) -> Optional[str]:
         row = self.table.cursor_row
@@ -205,28 +266,7 @@ class RepoBrowserApp(App):
         self.logr.debug("row_highlighted: %s", key)
         if not key:
             return
-        # If device, preview content; if folder, show hint
-        if key == ".." or os.path.isdir(key):
-            self.preview.clear()
-            self.preview.write(f"Path: {self.current_path}\nEnter to navigate. Press Q to quit.")
-        else:
-            snap = parse_snapshot(key)
-            self.preview.clear()
-            if snap:
-                try:
-                    self.preview.write(Syntax(snap.content_body, "ini", word_wrap=True))
-                except Exception:
-                    self.preview.write(snap.content_body)
-            else:
-                try:
-                    with open(key, "r", encoding="utf-8", errors="replace") as f:
-                        content = f.read()
-                        try:
-                            self.preview.write(Syntax(content, "ini", word_wrap=True))
-                        except Exception:
-                            self.preview.write(content)
-                except OSError as e:
-                    self.preview.write(f"[red]Error reading file:[/red] {e}")
+        self._update_preview(key)
 
     def action_enter_selected(self) -> None:
         key = self._selected_row_key()
@@ -281,10 +321,32 @@ class RepoBrowserApp(App):
         except ValueError:
             idx = 0
         self.layout = order[(idx + 1) % len(order)]
-        self._apply_layout()
+
+        # Remember current selection to restore after rebuild
+        saved_key = self._selected_row_key()
+
+        def _remount() -> None:
+            # Rebuild UI, reload directory, restore selection & preview
+            self._apply_layout()
+            self._load_directory(self.current_path)
+            if saved_key and saved_key in getattr(self, '_row_keys', []):
+                try:
+                    i = self._row_keys.index(saved_key)
+                    self.table.cursor_coordinate = (i, 0)
+                    self._update_preview(saved_key)
+                except Exception:
+                    pass
+            try:
+                self.table.focus()
+            except Exception:
+                pass
+
+        try:
+            self.call_after_refresh(_remount)
+        except Exception:
+            _remount()
 
     # 'o' binding removed; Enter handles both folders and device open
-
 
 
 
