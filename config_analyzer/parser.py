@@ -31,6 +31,20 @@ def _safe_read(path: str) -> Optional[str]:
         _log.debug("safe_read: failed to read %s", path)
         return None
 
+def _safe_read_head(path: str, max_lines: int = 10) -> Optional[str]:
+    """Read up to max_lines from a file safely for metadata parsing."""
+    try:
+        out_lines = []
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for i, line in enumerate(f):
+                if i >= max_lines:
+                    break
+                out_lines.append(line.rstrip("\n"))
+        return "\n".join(out_lines)
+    except OSError:
+        _log.debug("safe_read_head: failed to read %s", path)
+        return None
+
 def _extract_metadata_from_text(text: str) -> Tuple[Optional[str], Optional[datetime]]:
     # Cisco-style single line
     m = _CHANGE_CISCO_RE.search(text)
@@ -135,4 +149,43 @@ def parse_snapshot(file_path: str) -> Optional[Snapshot]:
         timestamp=ts,
         content_body=content_body,
         original_filename=original_filename,
+    )
+
+
+def parse_snapshot_meta(file_path: str, head_lines: int = 10) -> Optional[Snapshot]:
+    """Parse only metadata (author, timestamp) from a configuration file.
+
+    Reads only the head of the file and never the full content to keep it fast for
+    directory listings. Returns a Snapshot with an empty content_body.
+    """
+    _log.debug("parse_snapshot_meta: start path=%s", file_path)
+    head = _safe_read_head(file_path, max_lines=head_lines)
+    if head is None:
+        return None
+
+    author, ts = _extract_metadata_from_text(head)
+    if ts is None or author is None:
+        f_author, f_ts = _extract_metadata_from_filename(os.path.basename(file_path))
+        author = author or f_author
+        ts = ts or f_ts
+
+    if ts is None:
+        try:
+            ts = datetime.fromtimestamp(os.path.getmtime(file_path), tz=timezone.utc)
+        except OSError:
+            ts = datetime.now(timezone.utc)
+    if author is None:
+        author = "unknown"
+
+    if ts.tzinfo is None or (ts.tzinfo and ts.tzinfo.utcoffset(ts) is None):
+        ts = ts.replace(tzinfo=timezone.utc)
+    else:
+        ts = ts.astimezone(timezone.utc)
+
+    return Snapshot(
+        path=file_path,
+        author=author,
+        timestamp=ts,
+        content_body="",
+        original_filename=os.path.basename(file_path),
     )

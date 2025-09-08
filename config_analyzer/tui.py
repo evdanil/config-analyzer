@@ -1,25 +1,71 @@
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, DataTable, RichLog
+from textual.widgets import Header, Footer, DataTable, RichLog, Static
 from textual.containers import Container, Horizontal, Vertical
 from textual.binding import Binding
 from textual.reactive import reactive
+from textual import events
 
 from .parser import Snapshot
+from .filter_mixin import FilterMixin
 from .debug import get_logger
 from .version import __version__
 from .differ import get_diff, get_diff_side_by_side
+from .keymap import snapshot_bindings
+from .tips import snapshot_tips
 from rich.text import Text
 from rich.syntax import Syntax
+from .formatting import format_timestamp
 
 
 class DiffViewLog(RichLog):
-    BINDINGS = [Binding("space", "page_down", "Page Down", show=False)]
+    BINDINGS = [
+        Binding("space", "page_down", "Page Down", show=False),
+        Binding("d", "toggle_diff_mode", "Toggle Diff View"),
+        Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
+        Binding("tab", "focus_next_panel", "Switch Panel", show=False),
+    ]
+
+    def action_toggle_diff_mode(self) -> None:
+        try:
+            self.app.action_toggle_diff_mode()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def action_toggle_hide_unchanged(self) -> None:
+        try:
+            self.app.action_toggle_hide_unchanged()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def action_focus_next_panel(self) -> None:
+        try:
+            self.app.action_focus_next()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def on_key(self, event: events.Key) -> None:  # type: ignore
+        # Ensure Tab always switches panel even if widget defaults intercept
+        if event.key == "tab":
+            self.action_focus_next_panel()
+            try:
+                event.stop()
+            except Exception:
+                pass
+            return
+        try:
+            super().on_key(event)
+        except Exception:
+            pass
 
 
 class SelectionDataTable(DataTable):
     BINDINGS = [
         Binding("home", "goto_first_row", "First", show=False),
         Binding("end", "goto_last_row", "Last", show=False),
+        Binding("enter", "select_row", "Select", show=False),
+        Binding("backspace", "filter_backspace", "", show=False),
+        Binding("ctrl+h", "filter_backspace", "", show=False),
+        Binding("tab", "focus_next_panel", "Switch Panel", show=False),
     ]
 
     def action_goto_first_row(self) -> None:
@@ -37,8 +83,60 @@ class SelectionDataTable(DataTable):
         except Exception:
             pass
 
+    def action_select_row(self) -> None:
+        """Delegate row selection to the App's selection action."""
+        try:
+            # Toggle selection at the app level to keep logic DRY
+            self.app.action_toggle_row()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
-class CommitSelectorApp(App):
+    def action_filter_backspace(self) -> None:
+        try:
+            fb = getattr(self.app, "filter_backspace", None)
+            if fb:
+                fb()
+        except Exception:
+            pass
+
+    def action_focus_next_panel(self) -> None:
+        try:
+            self.app.action_focus_next()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def on_key(self, event: events.Key) -> None:  # type: ignore
+        """Delegate filter keys to the App-level mixin; consume if handled.
+
+        Handling at the widget level ensures Backspace/Enter work reliably
+        since Textual delivers keys to the focused widget first.
+        """
+        # Force Tab to switch panel (DataTable may consume it otherwise)
+        if event.key == "tab":
+            self.action_focus_next_panel()
+            try:
+                event.stop()
+            except Exception:
+                pass
+            return
+        try:
+            handler = getattr(self.app, "process_filter_key", None)
+            if handler and handler(event, require_table_focus=False):
+                try:
+                    event.stop()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        # Not handled by filter -> allow normal bindings/defaults to run
+        try:
+            super().on_key(event)
+        except Exception:
+            pass
+
+
+class CommitSelectorApp(FilterMixin, App):
     TITLE = "ConfigAnalyzer"
     SUB_TITLE = f"v{__version__} — Snapshot History"
 
@@ -64,23 +162,17 @@ class CommitSelectorApp(App):
     .layout-bottom #diff_view:focus-within { border-top: thick yellow; }
     .layout-top #diff_view { border-bottom: solid steelblue; }
     .layout-top #diff_view:focus-within { border-bottom: thick yellow; }
+
+    #main-panel { height: 1fr; }
     """
 
     show_hide_diff_key = reactive(False, layout=True)
     show_focus_next_key = reactive(False, layout=True)
+    # Dynamic footer hint visibility
+    show_select_key = reactive(True)
+    show_diff_controls_key = reactive(False)
 
-    BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("space", "toggle_row", "Toggle Select"),
-        Binding("tab", "focus_next", "Switch Panel", show=show_focus_next_key),
-        Binding("escape", "hide_diff", "Back / Hide Diff", show=show_hide_diff_key),
-        Binding("backspace", "go_back", "Back to Devices"),
-        Binding("home", "cursor_home", "First"),
-        Binding("end", "cursor_end", "Last"),
-        Binding("d", "toggle_diff_mode", "Toggle Diff View"),
-        Binding("l", "toggle_layout", "Toggle Layout"),
-        Binding("h", "toggle_hide_unchanged", "Hide Unchanged"),
-    ]
+    BINDINGS = snapshot_bindings(show_hide_diff_key, show_focus_next_key, show_select_key, show_diff_controls_key)
 
     def __init__(self, snapshots_data: list[Snapshot], scroll_to_end: bool = False, layout: str = "right"):
         super().__init__()
@@ -103,11 +195,16 @@ class CommitSelectorApp(App):
         self.table_container = Container(self.table, id="table-container")
         self.main_panel = Container(id="main-panel")
         yield self.main_panel
+        self.tips = Static("", id="tips")
+        yield self.tips
         yield Footer()
 
     def on_mount(self) -> None:
         self.logr.debug("on_mount: layout=%s", self.layout)
         self._apply_layout()
+        self._filter_text: str = ""
+        # Initialize footer hint flags
+        self._update_focus_flags()
 
         def _focus_table() -> None:
             try:
@@ -154,6 +251,7 @@ class CommitSelectorApp(App):
 
         # Populate table and reapply state
         self.setup_table()
+        self._update_tips()
         for key in self.selected_keys:
             try:
                 self.table.update_cell(key, "selected_col", Text("x", style="green"))
@@ -168,6 +266,7 @@ class CommitSelectorApp(App):
             self.table.focus()
         except Exception:
             pass
+        self._update_focus_flags()
 
     def setup_table(self) -> None:
         self.logr.debug("setup_table: %d snapshots", len(self.snapshots_data))
@@ -182,17 +281,78 @@ class CommitSelectorApp(App):
         table.add_column("Name", key="name_col")
         table.add_column("Date", key="date_col")
         table.add_column("Author", key="author_col")
+        # Render rows honoring any active filter
+        self._render_rows()
+
+    def _update_tips(self) -> None:
+        filter_hint = self.get_filter_hint()
+        show_diff_controls = bool(self.show_diff_controls_key)
+        show_tab = True
+        self.tips.update(snapshot_tips(filter_hint, show_diff_controls=show_diff_controls, show_tab=show_tab))
+
+    def action_focus_next(self) -> None:
+        """Ensure footer hint flags are updated after focus changes."""
+        try:
+            self.screen.focus_next()
+        except Exception:
+            pass
+        self._update_focus_flags()
+        self._update_tips()
+
+    def _update_focus_flags(self) -> None:
+        try:
+            diff_visible = self.diff_view.styles.visibility == "visible"
+        except Exception:
+            diff_visible = False
+        # Enter hint when table focused
+        self.show_select_key = bool(getattr(self.table, "has_focus", False))
+        # D/H hints when diff visible and focused
+        self.show_diff_controls_key = bool(diff_visible and getattr(self.diff_view, "has_focus", False))
+
+    def _render_rows(self) -> None:
+        table = self.table
+        try:
+            table.clear(columns=False)
+        except Exception:
+            # If clear with columns arg unsupported, rebuild columns
+            table.clear()
+            table.add_column("Sel", key="selected_col", width=3)
+            table.add_column("Name", key="name_col")
+            table.add_column("Date", key="date_col")
+            table.add_column("Author", key="author_col")
         self.ordered_keys = []
+        ft = (getattr(self, "_filter_text", "") or "").lower()
         for snapshot in self.snapshots_data:
+            name = snapshot.original_filename
+            author = snapshot.author or ""
+            ts_str = str(snapshot.timestamp)
+            if ft and not (ft in name.lower() or ft in author.lower() or ft in ts_str.lower()):
+                continue
             key = snapshot.path
             self.ordered_keys.append(key)
             table.add_row(
-                "",
-                snapshot.original_filename,
-                str(snapshot.timestamp),
+                "x" if key in self.selected_keys else "",
+                name,
+                format_timestamp(snapshot.timestamp),
                 snapshot.author,
                 key=key,
             )
+        # Reset cursor to first row
+        try:
+            if table.row_count:
+                table.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+        self._update_tips()
+
+    def on_key(self, event: events.Key) -> None:  # type: ignore
+        # Delegate to mixin; consume if handled (only when table focused)
+        if self.process_filter_key(event, require_table_focus=True):
+            try:
+                event.stop()
+            except Exception:
+                pass
+            return
 
     def show_diff(self) -> None:
         self.show_hide_diff_key = True
@@ -214,6 +374,7 @@ class CommitSelectorApp(App):
         self.diff_view.styles.visibility = "visible"
         self.diff_view.can_focus = True  # allow Tab focus, but don't take focus now
         # Keep focus on table
+        self._update_focus_flags()
 
     def hide_diff_panel(self) -> None:
         self.logr.debug("hide_diff_panel")
@@ -225,6 +386,7 @@ class CommitSelectorApp(App):
             self.table.focus()
         except Exception:
             pass
+        self._update_focus_flags()
 
     def action_hide_diff(self) -> None:
         # If diff visible, hide and clear selection; otherwise, go back to repo
@@ -237,7 +399,20 @@ class CommitSelectorApp(App):
             self.action_go_back()
 
     def action_go_back(self) -> None:
+        # Clear filter on leaving the snapshot view
+        self.clear_filter()
         self.navigate_back = True
+        self.exit()
+
+    def _on_filter_changed(self) -> None:
+        self._render_rows()
+
+    def action_quit(self) -> None:
+        # Clear filter first when active; else quit
+        if getattr(self, "_filter_text", ""):
+            self._filter_text = ""
+            self._render_rows()
+            return
         self.exit()
 
     def action_toggle_row(self) -> None:

@@ -6,8 +6,13 @@ from textual.widgets import Header, Footer, DataTable, RichLog, Static
 from textual.containers import Horizontal, Vertical, Container
 from rich.syntax import Syntax
 from textual.binding import Binding
+from textual import events
 
-from .parser import parse_snapshot, Snapshot
+from .parser import parse_snapshot, parse_snapshot_meta, Snapshot
+from .formatting import format_timestamp
+from .filter_mixin import FilterMixin
+from .keymap import browser_bindings
+from .tips import browser_tips
 from .debug import get_logger
 from .version import __version__
 
@@ -15,6 +20,11 @@ class BrowserDataTable(DataTable):
     BINDINGS = [
         Binding("home", "goto_first_row", "First", show=False),
         Binding("end", "goto_last_row", "Last", show=False),
+        Binding("backspace", "filter_backspace", "", show=False),
+        Binding("ctrl+h", "filter_backspace", "", show=False),
+        Binding("left", "go_up", "Up", show=True),
+        Binding("alt+up", "go_up", "Up", show=False),
+        Binding("right", "enter_selected", "Open", show=True),
     ]
     
     def action_goto_first_row(self) -> None:
@@ -32,7 +42,49 @@ class BrowserDataTable(DataTable):
         except Exception:
             pass
 
-class RepoBrowserApp(App):
+    def on_key(self, event: events.Key) -> None:  # type: ignore
+        """Delegate filter keys to the App-level mixin; consume if handled.
+
+        Handling at the widget level ensures Backspace works reliably
+        since Textual delivers keys to the focused widget first.
+        """
+        try:
+            handler = getattr(self.app, "process_filter_key", None)
+            if handler and handler(event, require_table_focus=False):
+                try:
+                    event.stop()
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        # Not handled by filter -> allow normal bindings/defaults to run
+        try:
+            super().on_key(event)
+        except Exception:
+            pass
+
+    def action_filter_backspace(self) -> None:
+        try:
+            fb = getattr(self.app, "filter_backspace", None)
+            if fb:
+                fb()
+        except Exception:
+            pass
+
+    def action_go_up(self) -> None:
+        try:
+            self.app.action_go_up()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def action_enter_selected(self) -> None:
+        try:
+            self.app.action_enter_selected()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+class RepoBrowserApp(FilterMixin, App):
     TITLE = "ConfigAnalyzer"
     SUB_TITLE = f"v{__version__} - Device Browser"
     """Simple repository browser.
@@ -41,13 +93,15 @@ class RepoBrowserApp(App):
     - Lists .cfg files as devices in the current folder.
     - Shows user (author) and timestamp if available.
     - Previews device configuration on selection.
-    - Enter to enter a folder; Backspace to go up.
+    - Enter to open; Left/Alt+Up to go up.
     """
 
     CSS = """
+    /* Default split for horizontal layouts */
     #left { width: 48%; }
     #right { width: 52%; }
 
+    /* Borders indicate split orientation */
     .layout-right #right { border-left: solid steelblue; }
     .layout-right #right:focus-within { border-left: thick yellow; }
     .layout-left #right { border-right: solid steelblue; }
@@ -56,18 +110,18 @@ class RepoBrowserApp(App):
     .layout-bottom #right:focus-within { border-top: thick yellow; }
     .layout-top #right { border-bottom: solid steelblue; }
     .layout-top #right:focus-within { border-bottom: thick yellow; }
+
+    /* Ensure vertical layouts split available height evenly and scroll within panes. */
+    .layout-bottom #left { height: 1fr; overflow: hidden; }
+    .layout-bottom #right { height: 1fr; overflow: hidden; }
+    .layout-top #left { height: 1fr; overflow: hidden; }
+    .layout-top #right { height: 1fr; overflow: hidden; }
+
+    /* Ensure main panel expands to fill space so vertical split uses full height */
+    #browser-main { height: 1fr; }
     """
 
-    BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("enter", "enter_selected", "Enter/Open"),
-        Binding("right", "enter_selected", "Enter/Open"),
-        Binding("backspace", "go_up", "Up"),
-        Binding("left", "go_up", "Up"),
-        Binding("l", "toggle_layout", "Toggle Layout"),
-        Binding("home", "cursor_home", "First"),
-        Binding("end", "cursor_end", "Last"),
-    ]
+    BINDINGS = browser_bindings()
 
     def __init__(self, repo_path: str, scroll_to_end: bool = False, start_path: Optional[str] = None, start_layout: Optional[str] = None, history_dir: str = 'history'):
         super().__init__()
@@ -85,6 +139,8 @@ class RepoBrowserApp(App):
             self.start_path = os.path.dirname(self._start_highlight_file)
         # Track last directory to highlight when going up
         self._highlight_dir_name: Optional[str] = None
+        # Metadata cache for files in current directory (path -> (author, ts_str))
+        self._meta = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -94,7 +150,9 @@ class RepoBrowserApp(App):
         self.preview = RichLog(id="right", wrap=True, highlight=False, auto_scroll=self.scroll_to_end)
         self.main_panel = Container(id="browser-main")
         yield self.main_panel
-        yield Static("Tips: Enter=open, Backspace=up, L=layout, Home/End=jump, Q=quit", id="tips")
+        # Tips/footer text is updated dynamically to show filter
+        self.tips = Static("", id="tips")
+        yield self.tips
         yield Footer()
 
     def on_mount(self) -> None:
@@ -102,6 +160,8 @@ class RepoBrowserApp(App):
         if self.start_path and os.path.isdir(self.start_path):
             self.current_path = self.start_path
         self._apply_layout()
+        self._filter_text: str = ""
+        self._all_entries: List[str] = []  # backing store of paths for current directory
         self._load_directory(self.current_path)
         self.logr.debug("mounted at %s", self.current_path)
 
@@ -144,6 +204,8 @@ class RepoBrowserApp(App):
 
         # Columns for the fresh table
         self._setup_table()
+        # Refresh tips line
+        self._update_tips()
 
     def _setup_table(self) -> None:
         t = self.table
@@ -157,6 +219,8 @@ class RepoBrowserApp(App):
 
     def _load_directory(self, path: str) -> None:
         self.logr.debug("load_directory: %s", path)
+        # Reset quick filter when changing directory level
+        self._filter_text = ""
         self.current_path = path
         t = self.table
         # Clear and rebuild columns to avoid clear(rows=...) incompatibility
@@ -188,17 +252,24 @@ class RepoBrowserApp(App):
             elif os.path.isfile(full) and name.lower().endswith(".cfg"):
                 cfgs.append(name)
 
+        # Build backing list of entries for filtering and preload metadata for device files
+        self._all_entries = []
+        self._meta = {}
         for d in dirs:
-            t.add_row("dir", d, "", "")
-            self._row_keys.append(os.path.join(path, d))
-
+            self._all_entries.append(os.path.join(path, d))
         for f in cfgs:
             full = os.path.join(path, f)
-            snap = parse_snapshot(full)
-            author = snap.author if snap else ""
-            ts = str(snap.timestamp) if snap else ""
-            t.add_row("dev", f, author, ts)
-            self._row_keys.append(full)
+            self._all_entries.append(full)
+            try:
+                snap = parse_snapshot_meta(full)
+            except Exception:
+                snap = None
+            author = (snap.author if snap else "")
+            ts_str = format_timestamp(snap.timestamp) if snap else ""
+            self._meta[full] = (author, ts_str)
+
+        # Render visible rows (with current filter, if any)
+        self._render_entries()
 
         # Move cursor to first row or highlight the provided file/dir
         if t.row_count:
@@ -257,6 +328,85 @@ class RepoBrowserApp(App):
         if row is None or row < 0 or row >= len(self._row_keys):
             return None
         return self._row_keys[row]
+
+    # -------- Filtering / Quick Search --------
+    def _update_tips(self) -> None:
+        filter_hint = self.get_filter_hint()
+        self.tips.update(browser_tips(filter_hint))
+
+    def _render_entries(self) -> None:
+        """Render current directory entries honoring the active filter.
+
+        Simpler approach: clear rows and rebuild them, preserving the parent '..' row when applicable.
+        """
+        t = self.table
+        # Clear and rebuild rows/columns
+        t.clear()
+        self._setup_table()
+        self._row_keys = []
+
+        # Add parent '..' if not at repo root
+        if os.path.abspath(self.current_path) != os.path.abspath(self.repo_path):
+            t.add_row("..", "..", "", "")
+            self._row_keys.append("..")
+
+        # Filter entries (name, author, date for files; name only for dirs)
+        ft = (self._filter_text or "").lower()
+        filtered = []
+        for full in self._all_entries:
+            name = os.path.basename(full)
+            if not ft:
+                filtered.append(full)
+                continue
+            if os.path.isdir(full):
+                if ft in name.lower():
+                    filtered.append(full)
+            else:
+                author, ts = self._meta.get(full, ("", ""))
+                if ft in name.lower() or ft in author.lower() or ft in ts.lower():
+                    filtered.append(full)
+
+        # Populate rows
+        for full in filtered:
+            base = os.path.basename(full)
+            if os.path.isdir(full):
+                t.add_row("dir", base, "", "")
+            else:
+                author, ts = self._meta.get(full, ("", ""))
+                t.add_row("dev", base, author, ts)
+            self._row_keys.append(full)
+
+        # Update tips line with filter info
+        self._update_tips()
+
+        # Adjust cursor
+        try:
+            if t.row_count:
+                t.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+
+    def on_key(self, event: events.Key) -> None:  # type: ignore
+        # Delegate to mixin; consume if handled
+        if self.process_filter_key(event, require_table_focus=True):
+            try:
+                event.stop()
+            except Exception:
+                pass
+            return
+
+    def action_quit(self) -> None:
+        """Clear filter first when active; otherwise quit."""
+        if self.filter_active():
+            self.clear_filter()
+            return
+        self.exit()
+
+    def action_clear_filter(self) -> None:
+        self.clear_filter()
+
+    def _on_filter_changed(self) -> None:
+        self._render_entries()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:  # type: ignore
         # Update preview when selection changes
@@ -343,6 +493,7 @@ class RepoBrowserApp(App):
             self.call_after_refresh(_remount)
         except Exception:
             _remount()
+
 
 
 
