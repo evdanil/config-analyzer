@@ -21,12 +21,34 @@ def get_logger(name: str = "config_analyzer") -> logging.Logger:
 
     main_logger = logging.getLogger("main")
     if main_logger.handlers:
+        # Inherit the 'main' logger configuration/handlers. Do not override
+        # to INFO which would suppress DEBUG if main is DEBUG.
         logger = main_logger.getChild("config_analyzer")
-        logger.setLevel(level)
+        # Inherit parent's effective level unless explicit debug override
+        if debug_enabled:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.NOTSET)
+        # If main is configured at INFO and we want DEBUG, attach our own
+        # file handler to capture debug logs without altering main.
+        if debug_enabled:
+            log_path = os.environ.get("CONFIG_ANALYZER_LOG")
+            if not log_path:
+                log_path = os.path.join(os.getcwd(), "tui_debug.log")
+            try:
+                fh = logging.FileHandler(log_path, encoding="utf-8")
+                fh.setLevel(logging.DEBUG)
+                fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+                fh.setFormatter(fmt)
+                logger.addHandler(fh)
+            except OSError:
+                pass
         _LOGGER = logger
         return logger.getChild(name)
 
     logger = logging.getLogger("config_analyzer")
+    # If no 'main' logger, configure our own handler. Use DEBUG only when
+    # explicitly enabled; otherwise default to INFO for local file handler.
     logger.setLevel(level)
 
     if logger.handlers:

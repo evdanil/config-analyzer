@@ -4,6 +4,51 @@ from typing import Optional, List
 from .parser import parse_snapshot, Snapshot
 
 
+def safe_call(func, *args, **kwargs):
+    """Safely call a function, ignoring exceptions."""
+    try:
+        return func(*args, **kwargs)
+    except Exception:
+        pass
+    return None
+
+
+def handle_search_key(app, event, search_target):
+    """Common search key handling logic.
+
+    Returns True if the key was handled, False otherwise.
+    """
+    k = event.key
+    ch = getattr(event, "character", "") or ""
+
+    # Map keys to their corresponding actions
+    actions = {
+        "escape": "action_cancel_find",
+        "down": "action_find_next",
+        "up": "action_find_prev",
+        "enter": "action_find_next",
+        "return": "action_find_next",
+        "backspace": "action_find_backspace",
+        "ctrl+h": "action_find_backspace",
+        "\b": "action_find_backspace",
+    }
+
+    # Check if we can handle this key
+    if k in actions:
+        safe_call(getattr(app, actions[k]))
+        safe_call(event.stop)
+        return True
+
+    # Handle printable characters
+    if (isinstance(ch, str) and len(ch) == 1 and ch.isprintable() and
+        not any(getattr(event, mod, False) for mod in ["ctrl", "alt", "meta"])):
+        safe_call(app.action_find_append_char, ch)
+        safe_call(event.stop)
+        return True
+
+    return False
+
+
 def find_device_history(repo_root: str, device: str, cfg_path: Optional[str], history_dir: str) -> Optional[str]:
     """Locate the nearest 'history/<device>' directory.
 
