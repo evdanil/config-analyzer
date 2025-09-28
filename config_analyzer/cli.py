@@ -1,8 +1,9 @@
 import os
+from typing import List, Optional, Tuple, Set
+
 import click
 from rich.console import Console
 
-from .parser import parse_snapshot
 from .utils import find_device_history, collect_snapshots
 from .debug import get_logger
 from .tui import CommitSelectorApp
@@ -11,9 +12,17 @@ from .repo_browser import RepoBrowserApp
 @click.command()
 @click.option(
     '--repo-path',
+    'repo_paths',
     required=True,
+    multiple=True,
     type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    help="Path to the repository of device configurations."
+    help="Path to a configuration repository. Repeat the option to aggregate multiple roots."
+)
+@click.option(
+    '--repo-label',
+    'repo_labels',
+    multiple=True,
+    help="Optional display name for a --repo-path entry (repeat in the same order)."
 )
 @click.option(
     '--device',
@@ -48,18 +57,35 @@ from .repo_browser import RepoBrowserApp
     help='Enable verbose debug logging to tui_debug.log',
     show_default=True,
 )
-def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
+def main(repo_paths, repo_labels, device, scroll_to_end, layout, history_dir, debug):
     """
     An interactive tool to analyze network device configuration changes.
     """
     console = Console()
     log = get_logger("main")
+
+    raw_repo_labels = [str(label).strip() for label in repo_labels]
+    repo_roots: List[str] = []
+    repo_label_overrides: List[str] = []
+    seen: Set[str] = set()
+    for index, path in enumerate(repo_paths):
+        abs_path = os.path.abspath(path)
+        label = raw_repo_labels[index] if index < len(raw_repo_labels) else ""
+        if abs_path in seen:
+            continue
+        repo_roots.append(abs_path)
+        repo_label_overrides.append(label)
+        seen.add(abs_path)
+    if not repo_roots:
+        raise click.UsageError("At least one --repo-path value is required")
+
     if debug:
         os.environ['CONFIG_ANALYZER_DEBUG'] = '1'
         console.print('[dim]Debug logging enabled -> tui_debug.log[/dim]')
     log.debug(
-        "start: repo=%s device=%s layout=%s history_dir=%s scroll_to_end=%s",
-        repo_path,
+        "start: repos=%s labels=%s device=%s layout=%s history_dir=%s scroll_to_end=%s",
+        repo_roots,
+        repo_label_overrides,
         device,
         layout,
         history_dir,
@@ -68,11 +94,30 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
     # Helper: resolve device snapshots directory under history (prefer nearest to selected cfg path)
     history_dir_l = history_dir.lower()
 
+    def _resolve_repo_root(path: Optional[str]) -> Optional[str]:
+        if not path:
+            return None
+        abs_path = os.path.abspath(path)
+        for root in repo_roots:
+            if abs_path == root or abs_path.startswith(root + os.sep):
+                return root
+        return None
+
+    def _locate_device_config(device_name: str) -> Tuple[Optional[str], Optional[str]]:
+        target = f"{device_name}.cfg"
+        for root in repo_roots:
+            for walk_root, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d.lower() != history_dir_l]
+                if target in files:
+                    return os.path.join(walk_root, target), root
+        return None, None
+
     # Persist layout preference across views
     layout_pref = layout
 
     # Loop to allow returning to the device browser from snapshot view
     selected_cfg_path = None
+    selected_repo_root: Optional[str] = None
     while True:
         # If no device specified or user requested back, launch the browser
         if not device:
@@ -81,26 +126,40 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
             except Exception:
                 pass
             browser = RepoBrowserApp(
-                repo_path,
+                repo_roots,
                 scroll_to_end=scroll_to_end,
                 start_path=selected_cfg_path,
                 start_layout=layout_pref,
                 history_dir=history_dir,
+                repo_names=repo_label_overrides,
             )
             browser.run()
             if not getattr(browser, 'selected_device_name', None):
                 return
             device = browser.selected_device_name
             selected_cfg_path = getattr(browser, 'selected_device_cfg_path', None)
+            selected_repo_root = getattr(browser, 'selected_repo_root', None) or _resolve_repo_root(selected_cfg_path)
             layout_pref = getattr(browser, 'layout', layout_pref)
             log.debug(
-                "browser: selected device=%s cfg=%s layout=%s",
+                "browser: selected device=%s cfg=%s repo=%s layout=%s",
                 device,
                 selected_cfg_path,
+                selected_repo_root,
                 layout_pref,
             )
 
-        device_history_path = find_device_history(repo_path, device, selected_cfg_path, history_dir)
+        repo_root_for_device = selected_repo_root or _resolve_repo_root(selected_cfg_path)
+        if not repo_root_for_device:
+            selected_cfg_path, repo_root_for_device = _locate_device_config(device)
+            if selected_cfg_path:
+                selected_repo_root = repo_root_for_device
+        if not repo_root_for_device:
+            console.print(f"[bold red]Error:[/bold red] Unable to locate repository root for device '{device}'.")
+            return
+
+        selected_repo_root = repo_root_for_device
+
+        device_history_path = find_device_history(repo_root_for_device, device, selected_cfg_path, history_dir)
         if not device_history_path:
             console.print(f"[bold yellow]Note:[/bold yellow] No history folder found for device '{device}'. Proceeding with current config only if present.")
         else:
@@ -111,7 +170,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
         if selected_cfg_path:
             current_config_path = selected_cfg_path
         else:
-            for root, dirs, files in os.walk(repo_path):
+            for root, dirs, files in os.walk(repo_root_for_device):
                 # prune any history directories from traversal
                 dirs[:] = [d for d in dirs if d.lower() != history_dir_l]
                 if f"{device}.cfg" in files:
@@ -120,7 +179,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
 
         # Parse and collect snapshots (dedupes Current if identical to latest)
         with console.status("[cyan]Parsing configuration snapshots...[/cyan]"):
-            snapshots = collect_snapshots(repo_path, device, selected_cfg_path, history_dir)
+            snapshots = collect_snapshots(repo_root_for_device, device, selected_cfg_path, history_dir)
 
         if not snapshots:
             console.print(f"[bold yellow]Warning:[/bold yellow] No configuration snapshots or current config found for device '{device}'.")
@@ -154,6 +213,7 @@ def main(repo_path, device, scroll_to_end, layout, history_dir, debug):
             # Reopen browser at the directory of current config if available
             device = None
             selected_cfg_path = current_config_path
+            selected_repo_root = repo_root_for_device if current_config_path else None
             continue
         break
 

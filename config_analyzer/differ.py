@@ -77,8 +77,8 @@ def get_diff_side_by_side(snapshot1: "Snapshot", snapshot2: "Snapshot", hide_unc
         show_edge=False,
         box=box.SIMPLE,
     )
-    table.add_column(snapshot1.original_filename, overflow="fold")
-    table.add_column(snapshot2.original_filename, overflow="fold")
+    table.add_column(snapshot1.original_filename, overflow="fold", ratio=1)
+    table.add_column(snapshot2.original_filename, overflow="fold", ratio=1)
 
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
