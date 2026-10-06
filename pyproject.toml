@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "config-analyzer"
 dynamic = ["version", "dependencies"]
 description = "Interactive TUI to browse device configs and diff snapshots"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
   { name = "Config Analyzer" }
 ]
