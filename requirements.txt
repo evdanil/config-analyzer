@@ -1,4 +1,4 @@
 click
 rich
 python-dateutil
-textual
+textual>=8.2,<9
